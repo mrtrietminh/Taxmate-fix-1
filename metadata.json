@@ -1,0 +1,7 @@
+{
+  "name": "[fix 1] TaxMate - Trợ Lý Thuế Hộ Kinh Doanh",
+  "description": "Ứng dụng Chat-First hỗ trợ hộ kinh doanh kê khai thuế, quản lý thu chi và kết nối kế toán dịch vụ.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
