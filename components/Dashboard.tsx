@@ -3,17 +3,64 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Transaction, TransactionType, RiskLevel, BusinessProfile } from '../types';
 import { formatVND, formatDate } from '../utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
-import { TrendingUp, TrendingDown, Filter, FileText, Calculator, ChevronLeft, Calendar, Info, Store, MapPin, CreditCard, User, AlertCircle, ChevronRight } from 'lucide-react';
+import { TrendingUp, TrendingDown, Filter, FileText, Calculator, ChevronLeft, Calendar, Info, Store, MapPin, CreditCard, User, AlertCircle, ChevronRight, Pencil, X, Save, Briefcase, Hash, Download, Upload, Copy, CheckCircle2 } from 'lucide-react';
+import { databaseService } from '../services/databaseService';
 
 interface DashboardProps {
   transactions: Transaction[];
   businessProfile: BusinessProfile;
+  onUpdateProfile: (profile: BusinessProfile) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile, onUpdateProfile }) => {
   const [viewDetail, setViewDetail] = useState<TransactionType | null>(null);
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   
+  // -- State cho tính năng Edit Profile & Backup --
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editForm, setEditForm] = useState<BusinessProfile>(businessProfile);
+  const [backupMode, setBackupMode] = useState(false); // Tab backup trong modal
+  const [backupString, setBackupString] = useState('');
+  const [importString, setImportString] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // Sync edit form khi businessProfile thay đổi từ props
+  useEffect(() => {
+      setEditForm(businessProfile);
+  }, [businessProfile]);
+
+  // Load backup string when backup mode is active
+  useEffect(() => {
+      if (backupMode) {
+          databaseService.exportBackup().then(setBackupString);
+      }
+  }, [backupMode]);
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+      e.preventDefault();
+      onUpdateProfile(editForm);
+      setIsEditingProfile(false);
+  };
+  
+  const handleCopyBackup = async () => {
+      const code = await databaseService.exportBackup();
+      navigator.clipboard.writeText(code);
+      setBackupString(code); // Hiển thị để user thấy nếu cần
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+  };
+
+  const handleImportBackup = () => {
+      if(!importString.trim()) return;
+      try {
+          databaseService.importBackup(importString);
+          alert("Khôi phục dữ liệu thành công! Ứng dụng sẽ tải lại.");
+          window.location.reload();
+      } catch (e) {
+          alert("Mã sao lưu không hợp lệ. Vui lòng kiểm tra lại.");
+      }
+  };
+
   // LOGIC: Chọn năm mặc định thông minh
   const [selectedYear, setSelectedYear] = useState(() => {
       const currentYear = new Date().getFullYear();
@@ -217,12 +264,12 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                             <div className="space-y-3">
                                 {transList.map((t) => (
                                     <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start justify-between">
-                                        <div className="flex items-start gap-3">
+                                        <div className="flex items-start gap-3 flex-1 min-w-0">
                                             <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${t.type === TransactionType.INCOME ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                                                 <FileText size={18} />
                                             </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900 line-clamp-2">{t.description}</p>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-slate-900 line-clamp-2 break-words">{t.description}</p>
                                                 <p className="text-xs text-slate-500 mt-1">{t.category} • {formatDate(t.date).split(' ')[0]}</p>
                                                 {t.riskLevel !== RiskLevel.SAFE && (
                                                     <div className={`mt-2 inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-medium ${
@@ -254,7 +301,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
 
   // --- VIEW: Main Dashboard ---
   return (
-    <div className="h-full overflow-y-auto bg-slate-50 pb-safe">
+    <div className="h-full overflow-y-auto bg-slate-50 pb-safe relative">
       <div className="p-4 space-y-6">
         
         {/* Business Profile & Year Selector */}
@@ -266,7 +313,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                 </div>
                 
                 {/* Year Selector */}
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm">
+                <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-sm shrink-0">
                     <button 
                         onClick={() => {
                             const currentIndex = availableYears.indexOf(selectedYear);
@@ -291,22 +338,30 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                 </div>
             </div>
 
-            <div className="p-4 space-y-3">
-                <div>
-                    <h2 className="text-lg font-bold text-slate-900 leading-tight">{businessProfile.name}</h2>
+            <div className="p-4 relative">
+                <button 
+                    onClick={() => { setIsEditingProfile(true); setBackupMode(false); }}
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 hover:text-blue-600 rounded-full transition-colors active:scale-95"
+                    title="Chỉnh sửa thông tin"
+                >
+                    <Pencil size={16} />
+                </button>
+
+                <div className="space-y-1 pr-8">
+                    <h2 className="text-lg font-bold text-slate-900 leading-tight break-words">{businessProfile.name}</h2>
                     <div className="flex items-center gap-1.5 mt-1 text-slate-500 text-xs">
-                        <CreditCard size={12} />
-                        <span className="font-mono bg-slate-100 px-1 rounded text-slate-600">{businessProfile.taxId}</span>
+                        <CreditCard size={12} className="shrink-0" />
+                        <span className="font-mono bg-slate-100 px-1 rounded text-slate-600 truncate">{businessProfile.taxId}</span>
                     </div>
                 </div>
                 
-                <div className="space-y-2 pt-2 border-t border-slate-50">
+                <div className="space-y-2 pt-2 border-t border-slate-50 mt-3">
                      <div className="flex items-center gap-2 text-xs mt-2 flex-wrap">
                         <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md font-medium border border-blue-100 truncate max-w-full">
                             {businessProfile.industryCode ? `${businessProfile.industryCode} - ` : ''}{businessProfile.industry}
                         </span>
                         {/* Hiển thị nhóm ngành nghề */}
-                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-md font-medium border border-purple-100 truncate">
+                        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded-md font-medium border border-purple-100 truncate max-w-full">
                             {taxInfo.settings?.code || 'Chưa phân loại'}
                         </span>
                      </div>
@@ -327,7 +382,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                     </div>
                 </div>
                 
-                <p className="text-3xl font-bold mt-2 tracking-tight">{formatVND(taxInfo.amount)}</p>
+                <p className="text-3xl font-bold mt-2 tracking-tight break-words">{formatVND(taxInfo.amount)}</p>
                 
                 {showTaxInfo ? (
                     <div className="mt-4 bg-white/10 p-4 rounded-xl backdrop-blur-md text-xs space-y-3 animate-in fade-in slide-in-from-top-2">
@@ -353,9 +408,9 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                             </div>
                     </div>
                 ) : (
-                        <div className="mt-4 flex gap-2 text-xs bg-white/10 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm items-center">
-                        {taxInfo.isExempt ? <AlertCircle size={14} className="text-green-300" /> : <Calculator size={14} className="text-indigo-200" />}
-                        <span>{taxInfo.desc}</span>
+                        <div className="mt-4 flex gap-2 text-xs bg-white/10 w-fit px-3 py-1.5 rounded-full backdrop-blur-sm items-center max-w-full">
+                        {taxInfo.isExempt ? <AlertCircle size={14} className="text-green-300 shrink-0" /> : <Calculator size={14} className="text-indigo-200 shrink-0" />}
+                        <span className="truncate">{taxInfo.desc}</span>
                     </div>
                 )}
             </div>
@@ -379,7 +434,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                         <span className="text-xs text-slate-500 font-bold">TỔNG THU</span>
                     </div>
                 </div>
-                <p className="relative z-10 text-lg font-bold text-slate-800">{formatVND(yearlyIncome)}</p>
+                <p className="relative z-10 text-base sm:text-lg font-bold text-slate-800 break-words line-clamp-1">{formatVND(yearlyIncome)}</p>
             </button>
 
             <button 
@@ -395,7 +450,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                         <span className="text-xs text-slate-500 font-bold">TỔNG CHI</span>
                     </div>
                 </div>
-                <p className="relative z-10 text-lg font-bold text-slate-800">{formatVND(yearlyExpense)}</p>
+                <p className="relative z-10 text-base sm:text-lg font-bold text-slate-800 break-words line-clamp-1">{formatVND(yearlyExpense)}</p>
             </button>
         </div>
 
@@ -438,12 +493,12 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                 ) : (
                     yearTransactions.slice().reverse().map((t) => (
                     <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-start justify-between active:bg-slate-50 transition-colors">
-                        <div className="flex items-start gap-3.5">
+                        <div className="flex items-start gap-3.5 flex-1 min-w-0">
                         <div className={`p-2.5 rounded-xl shrink-0 mt-0.5 ${t.type === TransactionType.INCOME ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
                             <FileText size={20} />
                         </div>
-                        <div>
-                            <p className="text-[15px] font-semibold text-slate-900 line-clamp-1">{t.description}</p>
+                        <div className="min-w-0">
+                            <p className="text-[15px] font-semibold text-slate-900 line-clamp-1 break-words">{t.description}</p>
                             <p className="text-xs text-slate-500 mt-0.5">{t.category} • {formatDate(t.date).split(',')[0]}</p>
                             {t.riskLevel !== RiskLevel.SAFE && (
                                 <div className={`mt-2 inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-medium ${
@@ -456,7 +511,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
                             )}
                         </div>
                         </div>
-                        <div className="text-right shrink-0">
+                        <div className="text-right shrink-0 ml-2">
                         <p className={`text-[15px] font-bold ${t.type === TransactionType.INCOME ? 'text-green-600' : 'text-slate-900'}`}>
                             {t.type === TransactionType.INCOME ? '+' : '-'}{formatVND(t.amount)}
                         </p>
@@ -467,6 +522,172 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, businessProfile }) 
             </div>
         </div>
       </div>
+
+      {/* EDIT PROFILE & BACKUP MODAL */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsEditingProfile(false)}></div>
+            <div className="relative bg-white w-full max-w-md rounded-t-[32px] sm:rounded-3xl shadow-2xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom-10 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                    <h2 className="font-bold text-lg text-slate-800">Cài đặt tài khoản</h2>
+                    <button onClick={() => setIsEditingProfile(false)} className="p-2 -mr-2 text-slate-400 hover:bg-slate-50 rounded-full">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="flex border-b border-slate-100">
+                    <button 
+                        onClick={() => setBackupMode(false)}
+                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-all ${!backupMode ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
+                    >
+                        Thông tin
+                    </button>
+                    <button 
+                        onClick={() => setBackupMode(true)}
+                        className={`flex-1 py-3 text-sm font-bold border-b-2 transition-all ${backupMode ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'}`}
+                    >
+                        Sao lưu & Đồng bộ
+                    </button>
+                </div>
+                
+                {backupMode ? (
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-sm text-blue-800 leading-relaxed">
+                            <Info size={16} className="inline-block mr-1 -mt-0.5" />
+                            Do ứng dụng chạy ở chế độ Demo, dữ liệu chỉ nằm trên thiết bị này. 
+                            Để chuyển sang máy khác, hãy sử dụng tính năng bên dưới.
+                        </div>
+
+                        {/* Export Section */}
+                        <div className="space-y-3">
+                            <h3 className="font-bold text-slate-800 text-sm uppercase flex items-center gap-2">
+                                <Download size={16} /> Sao lưu dữ liệu (Máy cũ)
+                            </h3>
+                            <p className="text-xs text-slate-500">Copy mã bên dưới và gửi sang máy mới.</p>
+                            
+                            <button 
+                                onClick={handleCopyBackup}
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-4 rounded-xl border border-slate-200 font-mono text-xs break-all relative group active:scale-95 transition-all text-left px-4 flex justify-between items-center"
+                            >
+                                <span className="truncate pr-4 opacity-60">
+                                    {backupString ? backupString.substring(0, 30) : 'Loading...'}...
+                                </span>
+                                {copySuccess ? <CheckCircle2 size={18} className="text-green-600" /> : <Copy size={18} />}
+                            </button>
+                            {copySuccess && <p className="text-xs text-green-600 font-bold text-center">Đã sao chép vào bộ nhớ đệm!</p>}
+                        </div>
+
+                        <div className="border-t border-dashed border-slate-200"></div>
+
+                        {/* Import Section */}
+                        <div className="space-y-3">
+                            <h3 className="font-bold text-slate-800 text-sm uppercase flex items-center gap-2">
+                                <Upload size={16} /> Khôi phục dữ liệu (Máy mới)
+                            </h3>
+                            <p className="text-xs text-slate-500">Dán mã sao lưu vào đây để nạp lại dữ liệu.</p>
+                            
+                            <textarea
+                                value={importString}
+                                onChange={(e) => setImportString(e.target.value)}
+                                placeholder="Dán mã sao lưu vào đây..."
+                                className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-mono h-24 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            ></textarea>
+                            
+                            <button 
+                                onClick={handleImportBackup}
+                                disabled={!importString.trim()}
+                                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+                            >
+                                Khôi phục & Tải lại
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <form onSubmit={handleSaveProfile} className="flex-1 overflow-y-auto p-6 space-y-5">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Tên Hộ Kinh Doanh <span className="text-red-500">*</span></label>
+                            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                                <Store size={20} className="text-slate-400 mr-3" />
+                                <input 
+                                    required
+                                    type="text"
+                                    className="flex-1 bg-transparent outline-none text-slate-900 font-medium placeholder:text-slate-400"
+                                    value={editForm.name}
+                                    onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Mã Số Thuế <span className="text-red-500">*</span></label>
+                            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                                <CreditCard size={20} className="text-slate-400 mr-3" />
+                                <input 
+                                    required
+                                    type="text"
+                                    className="flex-1 bg-transparent outline-none text-slate-900 font-medium placeholder:text-slate-400"
+                                    value={editForm.taxId}
+                                    onChange={(e) => setEditForm({...editForm, taxId: e.target.value})}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Ngành nghề chính</label>
+                            <div className="flex items-center bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                                <Briefcase size={20} className="text-blue-500 mr-3" />
+                                <input 
+                                    type="text"
+                                    className="flex-1 bg-transparent outline-none text-slate-900 font-medium placeholder:text-slate-400"
+                                    value={editForm.industry}
+                                    onChange={(e) => setEditForm({...editForm, industry: e.target.value})}
+                                />
+                            </div>
+                            <p className="text-[11px] text-blue-600 mt-1 ml-1 font-medium flex gap-1 items-center">
+                                <Info size={12}/>
+                                Thay đổi ngành nghề sẽ tính lại mức thuế.
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Mã ngành (VSIC)</label>
+                            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                                <Hash size={20} className="text-slate-400 mr-3" />
+                                <input 
+                                    type="text"
+                                    className="flex-1 bg-transparent outline-none text-slate-900 font-medium placeholder:text-slate-400"
+                                    value={editForm.industryCode || ''}
+                                    onChange={(e) => setEditForm({...editForm, industryCode: e.target.value})}
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Địa chỉ kinh doanh</label>
+                            <div className="flex items-start bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                                <MapPin size={20} className="text-slate-400 mr-3 mt-0.5" />
+                                <textarea 
+                                    rows={2}
+                                    className="flex-1 bg-transparent outline-none text-slate-900 font-medium placeholder:text-slate-400 resize-none"
+                                    value={editForm.address}
+                                    onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                                />
+                            </div>
+                        </div>
+                        
+                        <div className="pt-2 pb-safe">
+                            <button 
+                                type="submit"
+                                className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <Save size={18} /> Lưu thay đổi
+                            </button>
+                        </div>
+                    </form>
+                )}
+            </div>
+        </div>
+      )}
     </div>
   );
 };

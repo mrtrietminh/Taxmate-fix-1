@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Phone, ArrowRight, Lock, Loader2, Briefcase, ChevronLeft, UserPlus } from 'lucide-react';
+import { Phone, ArrowRight, Lock, Loader2, Briefcase, ChevronLeft, UserPlus, HelpCircle, KeyRound, CheckCircle2 } from 'lucide-react';
 import { databaseService } from '../services/databaseService';
 import { UserAccount } from '../types';
 
@@ -8,40 +8,87 @@ interface LoginProps {
   onLoginSuccess: (user: UserAccount) => void;
 }
 
+type AuthMode = 'LOGIN' | 'REGISTER' | 'FORGOT_PASSWORD';
+
 const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
-  const [isRegister, setIsRegister] = useState(false);
+  const [mode, setMode] = useState<AuthMode>('LOGIN');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState(''); // Dùng cho Register hoặc Reset
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<string>>) => {
+      // Chỉ cho phép nhập số và tối đa 6 ký tự
+      const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+      setter(val);
+  };
+
+  const resetForm = () => {
+      setError('');
+      setSuccessMsg('');
+      setPin('');
+      setConfirmPin('');
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccessMsg('');
     
+    // Validation
     if (phoneNumber.length < 10) {
         setError('Số điện thoại không hợp lệ.');
         return;
     }
-    if (password.length < 4) {
-        setError('Mật khẩu phải ít nhất 4 ký tự.');
+    if (pin.length !== 6) {
+        setError('Mã PIN phải đủ 6 chữ số.');
+        return;
+    }
+
+    if ((mode === 'REGISTER' || mode === 'FORGOT_PASSWORD') && pin !== confirmPin) {
+        setError('Mã PIN xác nhận không khớp.');
         return;
     }
 
     setIsLoading(true);
     try {
-        if (isRegister) {
-            const user = await databaseService.register(phoneNumber, password);
+        if (mode === 'REGISTER') {
+            const user = await databaseService.register(phoneNumber, pin);
             onLoginSuccess(user);
-        } else {
-            const user = await databaseService.login(phoneNumber, password);
+        } else if (mode === 'LOGIN') {
+            const user = await databaseService.login(phoneNumber, pin);
             onLoginSuccess(user);
+        } else if (mode === 'FORGOT_PASSWORD') {
+            await databaseService.resetPassword(phoneNumber, pin);
+            setSuccessMsg('Đặt lại mã PIN thành công. Vui lòng đăng nhập.');
+            setTimeout(() => {
+                setMode('LOGIN');
+                resetForm();
+            }, 1500);
         }
     } catch (err: any) {
         setError(err.message || 'Có lỗi xảy ra.');
     } finally {
         setIsLoading(false);
     }
+  };
+
+  const getTitle = () => {
+      switch(mode) {
+          case 'LOGIN': return 'Chào mừng trở lại';
+          case 'REGISTER': return 'Tạo mã PIN mới';
+          case 'FORGOT_PASSWORD': return 'Đặt lại mã PIN';
+      }
+  };
+
+  const getButtonText = () => {
+      switch(mode) {
+          case 'LOGIN': return 'Đăng nhập';
+          case 'REGISTER': return 'Tạo tài khoản';
+          case 'FORGOT_PASSWORD': return 'Xác nhận đổi PIN';
+      }
   };
 
   return (
@@ -54,13 +101,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                      {phoneNumber === '0999999999' ? <Briefcase size={40} /> : <span className="text-4xl font-bold">T</span>}
                 </div>
                 <h1 className="text-2xl font-bold">TaxMate</h1>
-                <p className="text-blue-100 text-sm">Cloud-Based Tax Assistant</p>
+                <p className="text-blue-100 text-sm">Trợ lý Kế toán Hộ kinh doanh</p>
             </div>
 
             <div className="bg-white rounded-2xl shadow-xl p-6 border border-slate-100">
                 <form onSubmit={handleAuth} className="space-y-5">
-                    <h2 className="text-xl font-bold text-slate-800">
-                        {isRegister ? 'Tạo tài khoản mới' : 'Chào mừng trở lại'}
+                    <h2 className="text-xl font-bold text-slate-800 flex items-center justify-between">
+                        {getTitle()}
+                        {mode !== 'LOGIN' && (
+                             <button 
+                                type="button" 
+                                onClick={() => { setMode('LOGIN'); resetForm(); }}
+                                className="text-slate-400 hover:text-slate-600"
+                             >
+                                 <ChevronLeft size={24} />
+                             </button>
+                        )}
                     </h2>
 
                     <div>
@@ -73,45 +129,85 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                                 className="flex-1 bg-transparent outline-none font-medium text-slate-900 placeholder:text-slate-400"
                                 value={phoneNumber}
                                 onChange={(e) => setPhoneNumber(e.target.value)}
+                                disabled={isLoading}
                             />
                         </div>
                     </div>
 
                     <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Mật khẩu</label>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">
+                            {mode === 'FORGOT_PASSWORD' ? 'Mã PIN mới (6 số)' : 'Mã PIN bảo mật (6 số)'}
+                        </label>
                         <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 transition-all">
                             <Lock size={20} className="text-slate-400 mr-3" />
                             <input 
                                 type="password" 
-                                placeholder="••••••"
-                                className="flex-1 bg-transparent outline-none font-medium text-slate-900 placeholder:text-slate-400"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={6}
+                                placeholder="• • • • • •"
+                                className="flex-1 bg-transparent outline-none font-medium text-slate-900 placeholder:text-slate-400 tracking-widest text-lg"
+                                value={pin}
+                                onChange={(e) => handlePinChange(e, setPin)}
+                                disabled={isLoading}
                             />
                         </div>
                     </div>
 
-                    {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-xl border border-red-100 font-medium">{error}</p>}
+                    {(mode === 'REGISTER' || mode === 'FORGOT_PASSWORD') && (
+                        <div className="animate-in fade-in slide-in-from-top-2">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5 ml-1">Xác nhận mã PIN</label>
+                            <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600 transition-all">
+                                <CheckCircle2 size={20} className="text-slate-400 mr-3" />
+                                <input 
+                                    type="password" 
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength={6}
+                                    placeholder="• • • • • •"
+                                    className="flex-1 bg-transparent outline-none font-medium text-slate-900 placeholder:text-slate-400 tracking-widest text-lg"
+                                    value={confirmPin}
+                                    onChange={(e) => handlePinChange(e, setConfirmPin)}
+                                    disabled={isLoading}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {error && <p className="text-red-500 text-xs bg-red-50 p-3 rounded-xl border border-red-100 font-medium animate-pulse">{error}</p>}
+                    {successMsg && <p className="text-green-600 text-xs bg-green-50 p-3 rounded-xl border border-green-100 font-medium">{successMsg}</p>}
 
                     <button 
                         type="submit"
                         disabled={isLoading}
                         className={`w-full text-white py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 active:scale-95 transition-all shadow-lg ${phoneNumber === '0999999999' ? 'bg-indigo-900' : 'bg-blue-600'}`}
                     >
-                        {isLoading ? <Loader2 className="animate-spin" /> : <>{isRegister ? 'Đăng ký' : 'Đăng nhập'} <ArrowRight size={18} /></>}
+                        {isLoading ? <Loader2 className="animate-spin" /> : <>{getButtonText()} <ArrowRight size={18} /></>}
                     </button>
 
-                    <button 
-                        type="button"
-                        onClick={() => setIsRegister(!isRegister)}
-                        className="w-full text-center text-sm font-bold text-blue-600 hover:underline pt-2 flex items-center justify-center gap-1"
-                    >
-                        {isRegister ? <><ChevronLeft size={16}/> Đã có tài khoản? Đăng nhập</> : <><UserPlus size={16}/> Người dùng mới? Đăng ký ngay</>}
-                    </button>
+                    {mode === 'LOGIN' && (
+                        <div className="flex items-center justify-between pt-2">
+                            <button 
+                                type="button"
+                                onClick={() => { setMode('FORGOT_PASSWORD'); resetForm(); }}
+                                className="text-xs font-medium text-slate-400 hover:text-slate-600 flex items-center gap-1"
+                            >
+                                <HelpCircle size={14} /> Quên mã PIN?
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => { setMode('REGISTER'); resetForm(); }}
+                                className="text-sm font-bold text-blue-600 hover:underline flex items-center gap-1"
+                            >
+                                <UserPlus size={16}/> Đăng ký mới
+                            </button>
+                        </div>
+                    )}
                 </form>
             </div>
+            
             <p className="mt-8 text-center text-[10px] text-slate-400 uppercase tracking-widest">
-                Protected by Google Cloud Security
+                Secured by TaxMate Cloud
             </p>
         </div>
     </div>

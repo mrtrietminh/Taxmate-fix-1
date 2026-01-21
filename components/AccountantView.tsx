@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Transaction, P2PMessage, TransactionType, RiskLevel, UserAccount } from '../types';
 import { formatVND, formatDate } from '../utils';
 import { databaseService } from '../services/databaseService';
-import { Send, FileText, Phone, TrendingUp, LogOut, Search, ChevronRight, ChevronLeft, MessageSquare, CreditCard, Store, AlertTriangle, Calculator } from 'lucide-react';
+import { Send, FileText, Phone, TrendingUp, LogOut, Search, ChevronRight, ChevronLeft, MessageSquare, CreditCard, Store, AlertTriangle, Calculator, Lock } from 'lucide-react';
 
 interface AccountantViewProps {
     onLogout: () => void;
@@ -17,22 +17,26 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Fetch clients (Async)
     useEffect(() => {
-        setClients(databaseService.getAllClients());
-        const interval = setInterval(() => {
-            setClients(databaseService.getAllClients());
-        }, 2000);
+        const fetchClients = async () => {
+            const data = await databaseService.getAllClients();
+            setClients(data);
+        };
+        fetchClients();
+
+        // Polling để cập nhật tin nhắn mới từ Cloud (Thay thế cho real-time socket phức tạp)
+        const interval = setInterval(fetchClients, 3000);
         return () => clearInterval(interval);
     }, []);
 
     const selectedClient = clients.find(c => c.phoneNumber === selectedClientPhone);
 
-    const handleSendMessage = () => {
+    const handleSendMessage = async () => {
         if (!chatInput.trim() || !selectedClientPhone) return;
 
-        // Lấy dữ liệu tươi từ DB để tránh race condition (ghi đè state cũ)
-        const db = databaseService.getDB();
-        const client = db[selectedClientPhone];
+        // Lấy dữ liệu tươi từ DB (Async)
+        const client = await databaseService.getUser(selectedClientPhone);
         
         if (!client) return;
 
@@ -49,8 +53,8 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
             p2pChat: [...client.p2pChat, newMessage]
         };
 
-        // Lưu vào DB
-        databaseService.updateUser(updatedClient);
+        // Lưu vào DB (Async)
+        await databaseService.updateUser(updatedClient);
         
         // Cập nhật UI ngay lập tức (Optimistic update)
         setClients(prev => prev.map(c => c.phoneNumber === selectedClientPhone ? updatedClient : c));
@@ -106,23 +110,23 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
                                 onClick={() => setSelectedClientPhone(client.phoneNumber)}
                                 className="w-full bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between active:scale-95 transition-all text-left group"
                             >
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors relative">
+                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-xl group-hover:bg-indigo-600 group-hover:text-white transition-colors relative shrink-0">
                                         {client.profile?.name.charAt(0) || '?'}
                                         {client.isPaid && <div className="absolute top-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>}
                                     </div>
-                                    <div>
-                                        <p className="font-bold text-slate-900 line-clamp-1">{client.profile?.name || 'Chưa thiết lập'}</p>
+                                    <div className="min-w-0">
+                                        <p className="font-bold text-slate-900 line-clamp-1 break-words">{client.profile?.name || 'Chưa thiết lập'}</p>
                                         <div className="flex gap-3 text-[11px] text-slate-500 mt-0.5">
-                                            <span className="flex items-center gap-1 font-mono">{client.phoneNumber}</span>
+                                            <span className="flex items-center gap-1 font-mono truncate">{client.phoneNumber}</span>
                                             {client.isPaid ? 
-                                                <span className="text-green-600 font-bold flex items-center gap-1">Đã thanh toán</span> : 
-                                                <span className="text-slate-400 flex items-center gap-1">Chưa thanh toán</span>
+                                                <span className="text-green-600 font-bold flex items-center gap-1 shrink-0">Đã thanh toán</span> : 
+                                                <span className="text-slate-400 flex items-center gap-1 shrink-0">Chưa thanh toán</span>
                                             }
                                         </div>
                                     </div>
                                 </div>
-                                <ChevronRight size={18} className="text-slate-300" />
+                                <ChevronRight size={18} className="text-slate-300 shrink-0" />
                             </button>
                         ))
                     )}
@@ -137,10 +141,9 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
     const income = transactions.filter(t => t.type === TransactionType.INCOME).reduce((s, t) => s + t.amount, 0);
     const expense = transactions.filter(t => t.type === TransactionType.EXPENSE).reduce((s, t) => s + t.amount, 0);
     
-    // Tính thuế tạm tính (Logic đơn giản để accountant tham khảo)
+    // Tính thuế tạm tính
     const THRESHOLD = 500000000;
     const isExempt = income <= THRESHOLD;
-    // Tỷ lệ giả định (1.5% cho bán lẻ) - Trong thực tế nên lấy từ industry code chính xác
     const taxRate = 0.015; 
     const estimatedTax = isExempt ? 0 : income * taxRate;
 
@@ -148,29 +151,28 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
         <div className="h-full bg-slate-50 flex flex-col">
             <div className="bg-indigo-900 text-white pt-safe px-4 shadow-lg shrink-0">
                 <div className="flex items-center justify-between h-[60px] mb-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                         <button 
                             type="button" 
                             onClick={() => setSelectedClientPhone(null)} 
-                            className="p-2 -ml-2 hover:bg-white/10 rounded-full active:scale-90"
+                            className="p-2 -ml-2 hover:bg-white/10 rounded-full active:scale-90 shrink-0"
                         >
                             <ChevronLeft size={24} />
                         </button>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
                             <div className="w-9 h-9 rounded-full bg-white text-indigo-900 font-bold flex items-center justify-center shrink-0">
                                 {selectedClient?.profile?.name.charAt(0)}
                             </div>
-                            <div className="overflow-hidden">
+                            <div className="overflow-hidden min-w-0">
                                 <p className="font-bold text-sm leading-tight truncate">{selectedClient?.profile?.name}</p>
-                                <p className="text-[10px] text-indigo-200 uppercase mt-0.5 font-mono">{selectedClient?.phoneNumber}</p>
+                                <p className="text-[10px] text-indigo-200 uppercase mt-0.5 font-mono truncate">{selectedClient?.phoneNumber}</p>
                             </div>
                         </div>
                     </div>
-                    {/* Thêm Logout vào đây cho tiện */}
                     <button 
                         type="button" 
                         onClick={onLogout} 
-                        className="p-2 hover:bg-white/10 rounded-full active:scale-95 text-indigo-300 hover:text-white"
+                        className="p-2 hover:bg-white/10 rounded-full active:scale-95 text-indigo-300 hover:text-white shrink-0"
                     >
                         <LogOut size={20} />
                     </button>
@@ -195,6 +197,18 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
             <div className="flex-1 overflow-y-auto bg-slate-50">
                 {activeTab === 'CHAT' ? (
                     <div className="p-4 space-y-4 pb-20">
+                        {!selectedClient?.isPaid && (
+                            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-start gap-3">
+                                <Lock size={16} className="text-amber-600 mt-0.5" />
+                                <div>
+                                    <p className="text-xs font-bold text-amber-800">Khách hàng chưa thanh toán</p>
+                                    <p className="text-[11px] text-amber-600 mt-0.5">
+                                        Họ sẽ không thấy tin nhắn cho đến khi thanh toán. Tuy nhiên, họ sẽ nhận được thông báo rằng bạn đã nhắn tin.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {selectedClient?.p2pChat.length === 0 ? (
                             <div className="text-center py-20 opacity-30 italic text-sm">Chưa có hội thoại nào.</div>
                         ) : (
@@ -250,7 +264,7 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
                             </div>
                         </div>
 
-                         {/* Thuế tạm tính (View cho Kế toán) */}
+                         {/* Thuế tạm tính */}
                          <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white p-4 rounded-2xl shadow-md">
                             <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-2">
@@ -277,12 +291,12 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
                             ) : (
                                 transactions.slice().reverse().map(t => (
                                     <div key={t.id} className="bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-start shadow-sm">
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-800 line-clamp-2 mb-1">{t.description}</p>
+                                        <div className="flex-1 min-w-0 mr-2">
+                                            <p className="text-sm font-bold text-slate-800 line-clamp-2 break-words mb-1">{t.description}</p>
                                             <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                                                <span className="bg-slate-100 px-1.5 py-0.5 rounded">{t.category}</span>
+                                                <span className="bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">{t.category}</span>
                                                 <span>•</span>
-                                                <span>{formatDate(t.date).split(' ')[0]}</span>
+                                                <span className="whitespace-nowrap">{formatDate(t.date).split(' ')[0]}</span>
                                             </div>
                                             {t.riskLevel !== RiskLevel.SAFE && (
                                                 <div className="flex items-center gap-1 mt-1.5 text-amber-600">
@@ -291,7 +305,7 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
                                                 </div>
                                             )}
                                         </div>
-                                        <div className="text-right whitespace-nowrap ml-2">
+                                        <div className="text-right whitespace-nowrap">
                                             <p className={`text-sm font-black ${t.type === TransactionType.INCOME ? 'text-green-600' : 'text-slate-900'}`}>
                                                 {t.type === TransactionType.INCOME ? '+' : '-'}{formatVND(t.amount)}
                                             </p>
@@ -313,7 +327,6 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
                         placeholder="Nhập nội dung tư vấn..."
                         className="flex-1 bg-slate-100 rounded-full px-5 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                         onKeyDown={(e) => {
-                            // FIX: Kiểm tra isComposing để tránh gửi tin nhắn khi đang gõ tiếng Việt (Telex/VNI)
                             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                                 e.preventDefault();
                                 handleSendMessage();

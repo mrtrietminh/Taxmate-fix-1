@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BookingStep, AccountantProfile, Transaction, P2PMessage } from '../types';
 import { formatVND, formatDate } from '../utils';
 import { databaseService } from '../services/databaseService';
-import { Check, ShieldCheck, Send, Eye, EyeOff, Sparkles, QrCode, Copy, Loader2, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Check, ShieldCheck, Send, Eye, EyeOff, Sparkles, QrCode, Copy, Loader2, ArrowLeft, CheckCircle2, MessageCircle } from 'lucide-react';
 
 const SERVICE_FEE = 199000;
 const BANK_BIN = '970422'; // MB Bank
@@ -36,11 +36,10 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Poll tin nhắn và trạng thái thanh toán
+  // Poll tin nhắn và trạng thái thanh toán (Async)
   useEffect(() => {
-    const checkStatus = () => {
-        const db = databaseService.getDB();
-        const user = db[currentUserPhone];
+    const checkStatus = async () => {
+        const user = await databaseService.getUser(currentUserPhone);
         if (user) {
             setMessages(user.p2pChat);
             // Nếu đã thanh toán và đang ở trạng thái IDLE hoặc PAYMENT thì chuyển sang CONNECTED
@@ -49,16 +48,17 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
             }
         }
     };
-    checkStatus(); // Check ngay lập tức
+    checkStatus(); 
     const interval = setInterval(checkStatus, 2000);
     return () => clearInterval(interval);
   }, [currentUserPhone, step]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
       if (!chatInput.trim()) return;
       
-      const db = databaseService.getDB();
-      const user = db[currentUserPhone];
+      const user = await databaseService.getUser(currentUserPhone);
+      if (!user) return;
+
       const newMessage: P2PMessage = {
           id: Date.now().toString(),
           senderId: currentUserPhone,
@@ -68,7 +68,9 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
       };
       
       user.p2pChat = [...user.p2pChat, newMessage];
-      databaseService.updateUser(user);
+      await databaseService.updateUser(user);
+      
+      // Optimistic update
       setMessages(user.p2pChat); 
       setChatInput('');
   };
@@ -78,11 +80,10 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
       // Giả lập call API verify giao dịch ngân hàng
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      const db = databaseService.getDB();
-      const user = db[currentUserPhone];
+      const user = await databaseService.getUser(currentUserPhone);
       if (user) {
           user.isPaid = true;
-          databaseService.updateUser(user);
+          await databaseService.updateUser(user);
           setStep(BookingStep.MATCHING_CHECKLIST); // Chuyển sang hiệu ứng tìm kiếm
           
           // Giả lập delay tìm kiếm kế toán
@@ -97,44 +98,68 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Generate VietQR URL
+  // Generate VietQR URL (Sync - vì profile đã load rồi hoặc lấy từ prop nếu cần thiết, nhưng ở đây query DB cũng được nhưng tốt nhất là dùng data đã có)
   const getQrUrl = () => {
-      const db = databaseService.getDB();
-      const user = db[currentUserPhone];
-      const content = user?.profile?.name ? `${user.profile.name}` : `TaxMate ${currentUserPhone}`;
-      // Encode URI component để xử lý tiếng Việt và khoảng trắng
-      return `https://img.vietqr.io/image/${BANK_BIN}-${BANK_ACCOUNT}-compact.png?amount=${SERVICE_FEE}&addInfo=${encodeURIComponent(content)}`;
+     // Lưu ý: Trong thực tế nên lấy name từ props passed down để tránh query lại DB ở hàm render
+     // Tạm thời dùng ID làm nội dung chuyển khoản
+     return `https://img.vietqr.io/image/${BANK_BIN}-${BANK_ACCOUNT}-compact.png?amount=${SERVICE_FEE}&addInfo=${encodeURIComponent(currentUserPhone)}`;
   };
 
   // -- SCREEN 1: INTRO --
   if (step === BookingStep.IDLE) {
     return (
-        <div className="h-full p-6 flex flex-col items-center justify-center text-center bg-slate-50">
-            <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 w-full max-w-sm">
-                <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <Sparkles size={40} className="text-blue-600" />
-                </div>
-                <h2 className="text-2xl font-black text-slate-900 mb-2">Chuyên gia Kế toán</h2>
-                <p className="text-slate-500 text-sm mb-6">Kết nối 1-1 với kế toán chuyên nghiệp để soát xét sổ sách và tối ưu thuế.</p>
-                
-                <div className="bg-slate-50 rounded-xl p-4 mb-8 text-left space-y-3">
-                    <div className="flex items-center gap-3 text-sm text-slate-700">
-                        <Check size={16} className="text-green-500 shrink-0" />
-                        <span>Rà soát toàn bộ sổ sách 2024-2025</span>
+        <div className="h-full p-6 flex flex-col items-center justify-center text-center bg-slate-50 relative overflow-hidden">
+            {/* Background Decoration */}
+            <div className="absolute top-0 left-0 w-full h-64 bg-gradient-to-b from-blue-50 to-transparent"></div>
+            
+            <div className="relative z-10 w-full max-w-sm">
+                {/* NOTIFICATION TEASER: Nếu kế toán đã nhắn tin */}
+                {messages.length > 0 && (
+                    <div className="mb-6 bg-white rounded-2xl p-4 shadow-lg border border-blue-100 flex items-center gap-4 animate-in slide-in-from-top-4 duration-500">
+                        <div className="relative shrink-0">
+                            <img src={MOCK_ACCOUNTANT.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
+                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold border-2 border-white">
+                                {messages.length}
+                            </div>
+                        </div>
+                        <div className="text-left flex-1 min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">
+                                {MOCK_ACCOUNTANT.name} <span className="text-slate-400 font-normal">đã nhắn:</span>
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-1">
+                                <span className="inline-block w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                                <p className="text-xs text-blue-600 font-bold italic truncate">"Bấm để mở khóa nội dung..."</p>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-slate-700">
-                        <Check size={16} className="text-green-500 shrink-0" />
-                        <span>Tư vấn tối ưu thuế khoán</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-sm text-slate-700">
-                        <Check size={16} className="text-green-500 shrink-0" />
-                        <span>Hỗ trợ giải trình với cơ quan thuế</span>
-                    </div>
-                </div>
+                )}
 
-                <button onClick={() => setStep(BookingStep.PAYMENT)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-all">
-                    Kết nối ngay • {formatVND(SERVICE_FEE)}
-                </button>
+                <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
+                    <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Sparkles size={40} className="text-blue-600" />
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-900 mb-2">Chuyên gia Kế toán</h2>
+                    <p className="text-slate-500 text-sm mb-6">Kết nối 1-1 với kế toán chuyên nghiệp để soát xét sổ sách và tối ưu thuế.</p>
+                    
+                    <div className="bg-slate-50 rounded-xl p-4 mb-8 text-left space-y-3">
+                        <div className="flex items-center gap-3 text-sm text-slate-700">
+                            <Check size={16} className="text-green-500 shrink-0" />
+                            <span>Rà soát toàn bộ sổ sách 2024-2025</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-slate-700">
+                            <Check size={16} className="text-green-500 shrink-0" />
+                            <span>Tư vấn tối ưu thuế khoán</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm text-slate-700">
+                            <Check size={16} className="text-green-500 shrink-0" />
+                            <span>Hỗ trợ giải trình với cơ quan thuế</span>
+                        </div>
+                    </div>
+
+                    <button onClick={() => setStep(BookingStep.PAYMENT)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-all">
+                        {messages.length > 0 ? 'Mở khóa tin nhắn ngay' : 'Kết nối ngay'} • {formatVND(SERVICE_FEE)}
+                    </button>
+                </div>
             </div>
         </div>
     );

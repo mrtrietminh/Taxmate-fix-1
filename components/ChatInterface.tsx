@@ -201,7 +201,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative">
-      <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-hide pb-28 select-text">
+      <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-hide pb-32 select-text">
         <div className="text-center text-[11px] font-medium text-slate-400 my-4 uppercase tracking-wide">
             Hôm nay, {new Date().toLocaleDateString('vi-VN')}
         </div>
@@ -313,7 +313,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-200/50 px-3 py-3 pb-safe z-10">
+      <div className="absolute bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-slate-200/50 px-3 py-3 pb-safe z-10">
         <div className="flex items-end gap-2 max-w-3xl mx-auto">
           <input
             type="file"
@@ -335,8 +335,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Nhập thu chi..."
-              className="flex-1 bg-transparent border-none outline-none text-slate-900 resize-none max-h-32 min-h-[24px] py-1 text-[15px] placeholder:text-slate-400"
+              placeholder="Nhập thu chi hoặc gửi ảnh..."
+              className="flex-1 bg-transparent border-none outline-none text-slate-900 resize-none max-h-32 min-h-[24px] py-1 text-base placeholder:text-slate-400"
               rows={1}
             />
           </div>

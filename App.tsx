@@ -37,6 +37,23 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
+  // Poll tin nhắn để cập nhật badge thông báo (Cập nhật sang Async)
+  useEffect(() => {
+    if (!isAuthenticated || currentUser?.role === 'ACCOUNTANT') return;
+    
+    const interval = setInterval(async () => {
+        const updatedUser = await databaseService.getUser(currentUser?.phoneNumber || '');
+        if (updatedUser) {
+            // Chỉ cập nhật nếu số lượng tin nhắn thay đổi để tránh re-render quá nhiều
+            if (updatedUser.p2pChat.length !== currentUser?.p2pChat.length) {
+                setCurrentUser(updatedUser);
+            }
+        }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, currentUser?.phoneNumber, currentUser?.p2pChat.length]);
+
+
   // Hàm đồng bộ dữ liệu lên GCP trung tâm
   const syncWithCloud = async (updatedUser: UserAccount) => {
       setIsSyncing(true);
@@ -124,6 +141,19 @@ const App: React.FC = () => {
       });
   };
 
+  // Hàm cập nhật hồ sơ (được gọi từ Dashboard)
+  const handleUpdateProfile = (updatedProfile: BusinessProfile) => {
+      setCurrentUser(prevUser => {
+          if (!prevUser) return null;
+          const updatedUser = {
+              ...prevUser,
+              profile: updatedProfile
+          };
+          syncWithCloud(updatedUser);
+          return updatedUser;
+      });
+  };
+
   if (isLoading) {
     return (
       <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-white">
@@ -166,7 +196,13 @@ const App: React.FC = () => {
           />
         );
       case 'DASHBOARD':
-        return <Dashboard transactions={currentUser.transactions} businessProfile={currentUser.profile!} />;
+        return (
+            <Dashboard 
+                transactions={currentUser.transactions} 
+                businessProfile={currentUser.profile!} 
+                onUpdateProfile={handleUpdateProfile} 
+            />
+        );
       case 'CONNECT':
         return <AccountantMatch transactions={currentUser.transactions} currentUserPhone={currentUser.phoneNumber} />;
       default:
@@ -174,29 +210,32 @@ const App: React.FC = () => {
     }
   };
 
+  // Logic tính số tin nhắn chưa đọc (đơn giản hóa bằng cách đếm tổng tin nhắn nếu chưa thanh toán)
+  const hasUnreadMessages = currentUser.p2pChat.length > 0;
+
   return (
     <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden border-x border-slate-200">
       <header className="shrink-0 bg-white/90 backdrop-blur-xl border-b border-slate-200/50 pt-safe z-50">
-        <div className="h-[60px] px-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-blue-200 shadow-md flex items-center justify-center text-white font-bold text-lg">
+        <div className="h-[60px] px-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl shadow-blue-200 shadow-md flex items-center justify-center text-white font-bold text-lg shrink-0">
                     {currentUser.profile?.name.charAt(0) || 'T'}
                 </div>
-                <div className="flex flex-col justify-center">
+                <div className="flex flex-col justify-center min-w-0 overflow-hidden">
                     <div className="flex items-center gap-1.5">
-                        <h1 className="font-bold text-slate-900 text-[15px] leading-tight">TaxMate</h1>
+                        <h1 className="font-bold text-slate-900 text-[15px] leading-tight truncate">TaxMate</h1>
                         {isSyncing ? (
-                          <Cloud size={14} className="text-blue-500 animate-bounce" />
+                          <Cloud size={14} className="text-blue-500 animate-bounce shrink-0" />
                         ) : (
-                          <Cloud size={14} className="text-green-500" />
+                          <Cloud size={14} className="text-green-500 shrink-0" />
                         )}
                     </div>
-                    <p className="text-[10px] text-slate-500 font-medium leading-none truncate max-w-[150px] uppercase tracking-wide">
+                    <p className="text-[11px] text-slate-500 font-medium leading-tight truncate uppercase tracking-wide">
                       {isSyncing ? 'Đang đồng bộ...' : (currentUser.profile?.name || 'Cloud Active')}
                     </p>
                 </div>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1 shrink-0">
                 <button type="button" className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-all active:scale-95">
                     <Bell size={20} />
                 </button>
@@ -225,8 +264,13 @@ const App: React.FC = () => {
             <PieChart size={24} className={currentView === 'DASHBOARD' ? "text-blue-600 fill-blue-600" : "text-slate-400"} />
             <span className={`text-[10px] font-semibold ${currentView === 'DASHBOARD' ? 'text-blue-600' : 'text-slate-400'}`}>Sổ sách</span>
         </button>
-        <button onClick={() => setCurrentView('CONNECT')} className="group flex flex-col items-center gap-1 p-2 w-16 transition-all">
-            <Users size={24} className={currentView === 'CONNECT' ? "text-blue-600 fill-blue-600" : "text-slate-400"} />
+        <button onClick={() => setCurrentView('CONNECT')} className="group flex flex-col items-center gap-1 p-2 w-16 transition-all relative">
+            <div className="relative">
+                <Users size={24} className={currentView === 'CONNECT' ? "text-blue-600 fill-blue-600" : "text-slate-400"} />
+                {hasUnreadMessages && currentView !== 'CONNECT' && (
+                    <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full"></span>
+                )}
+            </div>
             <span className={`text-[10px] font-semibold ${currentView === 'CONNECT' ? 'text-blue-600' : 'text-slate-400'}`}>Kế toán</span>
         </button>
       </nav>
