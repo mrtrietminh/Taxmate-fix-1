@@ -1,37 +1,36 @@
 
 import { UserAccount, AppDatabase, Transaction, ChatMessage, P2PMessage } from '../types';
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc } from 'firebase/firestore';
 
 // --- CẤU HÌNH GOOGLE CLOUD / FIREBASE ---
-// Bước 1: Truy cập console.firebase.google.com -> Tạo Project -> Tạo Firestore Database
-// Bước 2: Copy config vào bên dưới.
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE", // Thay bằng API Key của bạn
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "...",
-  appId: "..."
+  apiKey: "AIzaSyDo60X6HM70j80ReZKa4h5XTSHh77w_jy8",
+  authDomain: "taxmate-8a9d3.firebaseapp.com",
+  projectId: "taxmate-8a9d3",
+  storageBucket: "taxmate-8a9d3.firebasestorage.app",
+  messagingSenderId: "726344611291",
+  appId: "1:726344611291:web:c48ca59d82766204cfe3fe",
+  measurementId: "G-0FN9V9QK72"
 };
 
-// Tự động kiểm tra xem đã cấu hình chưa. Nếu chưa thì dùng LocalStorage.
-const IS_CLOUD_ENABLED = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE";
+// Kích hoạt chế độ Cloud
+const IS_CLOUD_ENABLED = true;
 
 let dbFirestore: any;
+
 if (IS_CLOUD_ENABLED) {
     try {
-        const app = initializeApp(firebaseConfig);
+        // Singleton pattern: Kiểm tra xem app đã khởi tạo chưa để tránh lỗi
+        const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
         dbFirestore = getFirestore(app);
-        console.log("✅ Đã kết nối tới Google Cloud Firestore");
+        console.log("✅ [Cloud] Đã kết nối tới Firestore Project:", firebaseConfig.projectId);
     } catch (e) {
-        console.error("❌ Lỗi kết nối Firebase:", e);
+        console.error("❌ [Cloud] Lỗi kết nối Firebase:", e);
     }
-} else {
-    console.warn("⚠️ Chưa cấu hình Firebase. Ứng dụng đang chạy chế độ Local Storage (Offline).");
 }
 
-// Key cho LocalStorage (Fallback)
+// Key cho LocalStorage (Fallback hoặc Cache phiên làm việc)
 const LOCAL_DB_KEY = 'taxmate_gcp_firestore_v1';
 const SESSION_KEY = 'taxmate_active_session';
 
@@ -39,7 +38,7 @@ const simulateDelay = (ms: number = 400) => new Promise(resolve => setTimeout(re
 
 export const databaseService = {
     /**
-     * Lấy dữ liệu 1 user (Hỗ trợ cả Cloud & Local)
+     * Lấy dữ liệu 1 user (Ưu tiên Cloud)
      */
     getUser: async (phoneNumber: string): Promise<UserAccount | null> => {
         if (IS_CLOUD_ENABLED && dbFirestore) {
@@ -55,14 +54,14 @@ export const databaseService = {
                 return null;
             }
         } else {
-            // Local Storage
+            // Fallback Local Storage
             const db = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
             return db[phoneNumber] || null;
         }
     },
 
     /**
-     * Lưu/Cập nhật User (Hỗ trợ cả Cloud & Local)
+     * Lưu/Cập nhật User (Ưu tiên Cloud)
      */
     updateUser: async (user: UserAccount) => {
         if (IS_CLOUD_ENABLED && dbFirestore) {
@@ -107,7 +106,7 @@ export const databaseService = {
      * ĐĂNG NHẬP
      */
     login: async (phone: string, password?: string): Promise<UserAccount> => {
-        // Tạo tài khoản kế toán mặc định nếu chưa có (chỉ cho demo/first run)
+        // Tạo tài khoản kế toán mặc định trên Cloud nếu chưa có (chỉ chạy lần đầu)
         if (phone === '0999999999') {
             const acc = await databaseService.getUser(phone);
             if (!acc) {
@@ -149,7 +148,6 @@ export const databaseService = {
      * ĐỒNG BỘ DỮ LIỆU
      */
     syncUserData: async (user: UserAccount): Promise<void> => {
-        // Debounce nhẹ để tránh spam Firestore
         await databaseService.updateUser(user);
         if (!IS_CLOUD_ENABLED) await simulateDelay(200);
     },
@@ -172,7 +170,6 @@ export const databaseService = {
 
     /**
      * LẤY DANH SÁCH KHÁCH HÀNG (Dành cho Kế toán)
-     * Đã cập nhật để hoạt động với Firestore
      */
     getAllClients: async (): Promise<UserAccount[]> => {
         if (IS_CLOUD_ENABLED && dbFirestore) {
@@ -195,15 +192,11 @@ export const databaseService = {
     },
 
     /**
-     * HỖ TRỢ BACKUP (Giữ nguyên logic cũ hoặc cảnh báo)
-     * Với Cloud, backup ít cần thiết hơn, nhưng vẫn giữ để export JSON
+     * HỖ TRỢ BACKUP
      */
     exportBackup: async (): Promise<string> => {
         let dbData: AppDatabase = {};
         if (IS_CLOUD_ENABLED && dbFirestore) {
-             // Trên cloud thì chỉ backup được user hiện tại đang login để tránh leak data
-             // Hoặc cần logic admin. Tạm thời fallback lấy từ localStorage nếu có, hoặc trả về rỗng.
-             // Để đơn giản cho demo: Cảnh báo.
              return "CLOUD_MODE_ACTIVE";
         } else {
             dbData = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
@@ -214,7 +207,7 @@ export const databaseService = {
 
     importBackup: (backupString: string): boolean => {
         if (IS_CLOUD_ENABLED) {
-            alert("Đang ở chế độ Cloud. Vui lòng import dữ liệu thông qua Firebase Console.");
+            alert("Đang ở chế độ Cloud. Dữ liệu đã được đồng bộ trực tuyến.");
             return false;
         }
         try {
@@ -229,8 +222,6 @@ export const databaseService = {
         }
     },
     
-    // --- HELPER CHO LOCAL DB (LEGACY SUPPORT) ---
-    // Hàm này giữ lại để tránh break code cũ, nhưng khuyến khích dùng getUser/updateUser
     getDB: (): AppDatabase => {
          return JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
     }
