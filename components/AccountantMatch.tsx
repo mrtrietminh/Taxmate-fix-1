@@ -38,19 +38,35 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
 
   // Poll tin nhắn và trạng thái thanh toán (Async)
   useEffect(() => {
+    let isMounted = true;
     const checkStatus = async () => {
-        const user = await databaseService.getUser(currentUserPhone);
-        if (user) {
-            setMessages(user.p2pChat);
-            // Nếu đã thanh toán và đang ở trạng thái IDLE hoặc PAYMENT thì chuyển sang CONNECTED
-            if (user.isPaid && (step === BookingStep.IDLE || step === BookingStep.PAYMENT)) {
-                setStep(BookingStep.CONNECTED);
+        try {
+            const user = await databaseService.getUser(currentUserPhone);
+            if (user && isMounted) {
+                // Tối ưu hóa: Chỉ cập nhật state khi dữ liệu thực sự thay đổi để tránh giật màn hình
+                setMessages(prev => {
+                    if (JSON.stringify(prev) !== JSON.stringify(user.p2pChat)) {
+                        return user.p2pChat;
+                    }
+                    return prev;
+                });
+
+                // Nếu đã thanh toán và đang ở trạng thái IDLE hoặc PAYMENT thì chuyển sang CONNECTED
+                // Chỉ chuyển khi không đang xử lý verify thủ công (để tránh xung đột animation)
+                if (user.isPaid && (step === BookingStep.IDLE)) {
+                    setStep(BookingStep.CONNECTED);
+                }
             }
+        } catch (e) {
+            console.error("Polling error:", e);
         }
     };
     checkStatus(); 
-    const interval = setInterval(checkStatus, 2000);
-    return () => clearInterval(interval);
+    const interval = setInterval(checkStatus, 3000); // Tăng thời gian poll lên 3s để giảm tải
+    return () => {
+        isMounted = false;
+        clearInterval(interval);
+    };
   }, [currentUserPhone, step]);
 
   const handleSendMessage = async () => {
@@ -77,31 +93,40 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
 
   const handleConfirmPayment = async () => {
       setIsVerifyingPayment(true);
-      // Giả lập call API verify giao dịch ngân hàng
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const user = await databaseService.getUser(currentUserPhone);
-      if (user) {
-          user.isPaid = true;
-          await databaseService.updateUser(user);
-          setStep(BookingStep.MATCHING_CHECKLIST); // Chuyển sang hiệu ứng tìm kiếm
-          
-          // Giả lập delay tìm kiếm kế toán
-          setTimeout(() => {
-              setStep(BookingStep.CONNECTED);
-          }, 2500);
+      try {
+        // Giả lập call API verify giao dịch ngân hàng (2s)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const user = await databaseService.getUser(currentUserPhone);
+        if (user) {
+            // Cập nhật trạng thái thanh toán
+            user.isPaid = true;
+            await databaseService.updateUser(user);
+            
+            // Chuyển UI
+            setStep(BookingStep.MATCHING_CHECKLIST); 
+            
+            // Giả lập delay tìm kiếm kế toán (2.5s)
+            setTimeout(() => {
+                setStep(BookingStep.CONNECTED);
+            }, 2500);
+        } else {
+            alert("Không tìm thấy thông tin tài khoản. Vui lòng thử lại.");
+        }
+      } catch (e) {
+          console.error("Payment error:", e);
+          alert("Lỗi kết nối. Vui lòng kiểm tra mạng và thử lại.");
+      } finally {
+          setIsVerifyingPayment(false);
       }
-      setIsVerifyingPayment(false);
   };
 
   useEffect(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length, step]); // Chỉ scroll khi số lượng tin nhắn thay đổi hoặc đổi màn hình
 
-  // Generate VietQR URL (Sync - vì profile đã load rồi hoặc lấy từ prop nếu cần thiết, nhưng ở đây query DB cũng được nhưng tốt nhất là dùng data đã có)
+  // Generate VietQR URL
   const getQrUrl = () => {
-     // Lưu ý: Trong thực tế nên lấy name từ props passed down để tránh query lại DB ở hàm render
-     // Tạm thời dùng ID làm nội dung chuyển khoản
      return `https://img.vietqr.io/image/${BANK_BIN}-${BANK_ACCOUNT}-compact.png?amount=${SERVICE_FEE}&addInfo=${encodeURIComponent(currentUserPhone)}`;
   };
 
@@ -117,7 +142,7 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
                 {messages.length > 0 && (
                     <div className="mb-6 bg-white rounded-2xl p-4 shadow-lg border border-blue-100 flex items-center gap-4 animate-in slide-in-from-top-4 duration-500">
                         <div className="relative shrink-0">
-                            <img src={MOCK_ACCOUNTANT.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-sm" />
+                            <img src={MOCK_ACCOUNTANT.avatar} className="w-12 h-12 rounded-full border-2 border-white shadow-sm" alt="Accountant" />
                             <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold border-2 border-white">
                                 {messages.length}
                             </div>
@@ -226,7 +251,7 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
   // -- SCREEN 3: MATCHING SIMULATION --
   if (step === BookingStep.MATCHING_CHECKLIST) {
       return (
-        <div className="h-full flex flex-col items-center justify-center bg-white p-8 text-center">
+        <div className="h-full flex flex-col items-center justify-center bg-white p-8 text-center animate-in fade-in zoom-in-95 duration-500">
             <div className="relative mb-8">
                 <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping opacity-25"></div>
                 <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center relative z-10">
@@ -246,7 +271,7 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
               <div className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-sm z-10">
                   <div className="flex items-center gap-3">
                       <div className="relative">
-                        <img src={MOCK_ACCOUNTANT.avatar} className="w-10 h-10 rounded-full border-2 border-green-500" />
+                        <img src={MOCK_ACCOUNTANT.avatar} className="w-10 h-10 rounded-full border-2 border-green-500" alt="Accountant" />
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
                       </div>
                       <div>

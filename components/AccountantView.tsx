@@ -17,11 +17,18 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Fetch clients (Async)
+    // Fetch clients (Async) với tối ưu hóa tránh re-render (Jitter fix)
     useEffect(() => {
         const fetchClients = async () => {
             const data = await databaseService.getAllClients();
-            setClients(data);
+            setClients(prevClients => {
+                // Chỉ update nếu dữ liệu thay đổi (So sánh đơn giản độ dài hoặc JSON)
+                // Điều này ngăn chặn màn hình bị nháy/giật mỗi 3 giây
+                if (JSON.stringify(data) !== JSON.stringify(prevClients)) {
+                    return data;
+                }
+                return prevClients;
+            });
         };
         fetchClients();
 
@@ -66,7 +73,7 @@ const AccountantView: React.FC<AccountantViewProps> = ({ onLogout }) => {
         if (activeTab === 'CHAT' && selectedClient?.p2pChat) {
              messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [selectedClient?.p2pChat, activeTab]);
+    }, [selectedClient?.p2pChat.length, activeTab]); // Chỉ scroll khi số lượng tin nhắn thay đổi
 
     const filteredClients = clients.filter(c => 
         (c.profile?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 

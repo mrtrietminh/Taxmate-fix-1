@@ -1,7 +1,7 @@
 
 import { UserAccount, AppDatabase, Transaction, ChatMessage, P2PMessage } from '../types';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, initializeFirestore } from 'firebase/firestore';
 
 // --- CẤU HÌNH GOOGLE CLOUD / FIREBASE ---
 const firebaseConfig = {
@@ -21,10 +21,27 @@ let dbFirestore: any;
 
 if (IS_CLOUD_ENABLED) {
     try {
-        // Singleton pattern: Kiểm tra xem app đã khởi tạo chưa để tránh lỗi
+        // Singleton pattern: Kiểm tra xem app đã khởi tạo chưa để tránh lỗi "Firebase App already exists"
         const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-        dbFirestore = getFirestore(app);
-        console.log("✅ [Cloud] Đã kết nối tới Firestore Project:", firebaseConfig.projectId);
+        
+        // Sử dụng initializeFirestore với experimentalForceLongPolling như yêu cầu
+        // Đây là cách fix lỗi kết nối chập chờn trên một số mạng
+        try {
+            dbFirestore = initializeFirestore(app, {
+                experimentalForceLongPolling: true,
+            });
+            console.log("✅ [Cloud] Đã kết nối tới Google Cloud Firestore (Long Polling)");
+        } catch (e: any) {
+            // Nếu Firestore đã được khởi tạo trước đó (ví dụ do Hot Reload), fallback về getFirestore
+            if (e.code === 'failed-precondition') {
+                 dbFirestore = getFirestore(app);
+                 console.log("⚠️ Firestore đã khởi tạo trước đó, sử dụng instance hiện tại.");
+            } else {
+                 console.warn("Firestore init warning:", e);
+                 dbFirestore = getFirestore(app);
+            }
+        }
+        
     } catch (e) {
         console.error("❌ [Cloud] Lỗi kết nối Firebase:", e);
     }
@@ -38,9 +55,10 @@ const simulateDelay = (ms: number = 400) => new Promise(resolve => setTimeout(re
 
 export const databaseService = {
     /**
-     * Lấy dữ liệu 1 user (Ưu tiên Cloud)
+     * Lấy dữ liệu 1 user (Ưu tiên Cloud, có Fallback & Migration)
      */
     getUser: async (phoneNumber: string): Promise<UserAccount | null> => {
+        // Kiểm tra Cloud trước
         if (IS_CLOUD_ENABLED && dbFirestore) {
             try {
                 const docRef = doc(dbFirestore, "users", phoneNumber);
@@ -48,34 +66,55 @@ export const databaseService = {
                 if (docSnap.exists()) {
                     return docSnap.data() as UserAccount;
                 }
+                
+                // --- FALLBACK & MIGRATION ---
+                // Nếu không tìm thấy trên Cloud, kiểm tra LocalStorage (trường hợp đăng ký khi mạng lỗi)
+                const localDb = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
+                const localUser = localDb[phoneNumber];
+                
+                if (localUser) {
+                    console.log(`[Auto-Sync] Tìm thấy user ${phoneNumber} dưới Local, đang đồng bộ lên Cloud...`);
+                    // Migrate dữ liệu từ Local lên Cloud ngay lập tức
+                    await setDoc(doc(dbFirestore, "users", phoneNumber), localUser);
+                    return localUser;
+                }
+
                 return null;
             } catch (e) {
                 console.error("Cloud Error (getUser):", e);
-                return null;
+                // Nếu lỗi Cloud (mạng...), fallback về local để app không chết
+                const db = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
+                return db[phoneNumber] || null;
             }
         } else {
-            // Fallback Local Storage
+            // Chế độ Offline hoàn toàn
             const db = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
             return db[phoneNumber] || null;
         }
     },
 
     /**
-     * Lưu/Cập nhật User (Ưu tiên Cloud)
+     * Lưu/Cập nhật User (Dual Write: Cloud + Local Cache)
      */
     updateUser: async (user: UserAccount) => {
-        if (IS_CLOUD_ENABLED && dbFirestore) {
-            try {
-                // Trên Firestore, ta lưu từng user thành 1 document trong collection 'users'
-                await setDoc(doc(dbFirestore, "users", user.phoneNumber), user);
-            } catch (e) {
-                console.error("Cloud Error (updateUser):", e);
-            }
-        } else {
+        // 1. Luôn lưu LocalStorage làm cache/backup (Write-through)
+        try {
             const db = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
             db[user.phoneNumber] = user;
             localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
+        } catch (e) {
+            console.warn("Local storage write failed", e);
         }
+
+        // 2. Lưu lên Cloud nếu có kết nối
+        if (IS_CLOUD_ENABLED && dbFirestore) {
+            try {
+                await setDoc(doc(dbFirestore, "users", user.phoneNumber), user);
+            } catch (e) {
+                console.error("Cloud Error (updateUser):", e);
+                // Không throw error để app vẫn chạy tiếp ở chế độ offline
+            }
+        } 
     },
 
     /**
@@ -149,7 +188,6 @@ export const databaseService = {
      */
     syncUserData: async (user: UserAccount): Promise<void> => {
         await databaseService.updateUser(user);
-        if (!IS_CLOUD_ENABLED) await simulateDelay(200);
     },
 
     /**
@@ -195,26 +233,28 @@ export const databaseService = {
      * HỖ TRỢ BACKUP
      */
     exportBackup: async (): Promise<string> => {
-        let dbData: AppDatabase = {};
-        if (IS_CLOUD_ENABLED && dbFirestore) {
-             return "CLOUD_MODE_ACTIVE";
-        } else {
-            dbData = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
-        }
+        // Ưu tiên lấy từ Local Cache để nhanh
+        const dbData = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
         const json = JSON.stringify(dbData);
         return btoa(unescape(encodeURIComponent(json)));
     },
 
     importBackup: (backupString: string): boolean => {
-        if (IS_CLOUD_ENABLED) {
-            alert("Đang ở chế độ Cloud. Dữ liệu đã được đồng bộ trực tuyến.");
-            return false;
-        }
         try {
             const json = decodeURIComponent(escape(atob(backupString)));
             const db = JSON.parse(json);
             if (typeof db !== 'object') return false;
+            
+            // Lưu vào Local
             localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
+            
+            // Nếu có Cloud, cố gắng đẩy từng user lên Cloud
+            if (IS_CLOUD_ENABLED && dbFirestore) {
+                Object.values(db).forEach((user: any) => {
+                    databaseService.updateUser(user);
+                });
+            }
+            
             return true;
         } catch (e) {
             console.error("Import failed", e);

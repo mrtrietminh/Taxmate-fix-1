@@ -156,7 +156,7 @@ const App: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-white">
+      <div className="h-full w-full flex flex-col items-center justify-center bg-white">
         <Loader2 className="animate-spin text-blue-600 mb-4" size={40} />
         <p className="text-slate-500 font-medium">Đang kết nối Google Cloud...</p>
       </div>
@@ -169,7 +169,7 @@ const App: React.FC = () => {
 
   if (currentUser?.role === 'ACCOUNTANT') {
       return (
-          <div className="h-[100dvh] w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden relative border-x border-slate-200">
+          <div className="h-full w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden relative border-x border-slate-200">
               <AccountantView onLogout={handleLogout} />
           </div>
       );
@@ -177,7 +177,7 @@ const App: React.FC = () => {
 
   if (!currentUser?.profile) {
       return (
-          <div className="h-[100dvh] w-full max-w-md mx-auto bg-white shadow-2xl relative border-x border-slate-200">
+          <div className="h-full w-full max-w-md mx-auto bg-white shadow-2xl relative border-x border-slate-200">
               <Onboarding onComplete={handleCompleteOnboarding} />
           </div>
       );
@@ -214,7 +214,7 @@ const App: React.FC = () => {
   const hasUnreadMessages = currentUser.p2pChat.length > 0;
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden border-x border-slate-200">
+    <div className="flex flex-col h-full w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden border-x border-slate-200">
       <header className="shrink-0 bg-white/90 backdrop-blur-xl border-b border-slate-200/50 pt-safe z-50">
         <div className="h-[60px] px-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-3 flex-1 min-w-0">
