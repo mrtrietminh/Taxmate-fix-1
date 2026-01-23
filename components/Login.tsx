@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { Phone, ArrowRight, Lock, Loader2, Briefcase, ChevronLeft, UserPlus, HelpCircle, KeyRound, CheckCircle2 } from 'lucide-react';
 import { databaseService } from '../services/databaseService';
+import { validatePhoneNumber, validatePin } from '../services/validation';
 import { UserAccount } from '../types';
 
 interface LoginProps {
@@ -36,17 +37,22 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
-    
-    // Validation
-    if (phoneNumber.length < 10) {
-        setError('Số điện thoại không hợp lệ.');
-        return;
-    }
-    if (pin.length !== 6) {
-        setError('Mã PIN phải đủ 6 chữ số.');
+
+    // Validate phone number
+    const phoneValidation = validatePhoneNumber(phoneNumber);
+    if (!phoneValidation.isValid) {
+        setError(phoneValidation.error!);
         return;
     }
 
+    // Validate PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.isValid) {
+        setError(pinValidation.error!);
+        return;
+    }
+
+    // Validate PIN confirmation for register/reset
     if ((mode === 'REGISTER' || mode === 'FORGOT_PASSWORD') && pin !== confirmPin) {
         setError('Mã PIN xác nhận không khớp.');
         return;

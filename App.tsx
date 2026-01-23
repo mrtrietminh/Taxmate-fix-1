@@ -6,13 +6,14 @@ import AccountantMatch from './components/AccountantMatch';
 import AccountantView from './components/AccountantView';
 import Onboarding from './components/Onboarding';
 import Login from './components/Login';
+import ErrorBoundary from './components/ErrorBoundary';
 import { Transaction, BusinessProfile, ChatMessage, UserAccount } from './types';
 import { databaseService } from './services/databaseService';
 import { PieChart, Users, Bell, LogOut, MessageCircle, Cloud, CloudOff, Loader2 } from 'lucide-react';
 
 type View = 'CHAT' | 'DASHBOARD' | 'CONNECT';
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [currentView, setCurrentView] = useState<View>('CHAT');
@@ -275,6 +276,15 @@ const App: React.FC = () => {
         </button>
       </nav>
     </div>
+  );
+};
+
+// Wrap the app with ErrorBoundary for graceful error handling
+const App: React.FC = () => {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 };
 

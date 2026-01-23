@@ -2,16 +2,17 @@
 import { UserAccount, AppDatabase, Transaction, ChatMessage, P2PMessage } from '../types';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore, doc, getDoc, setDoc, collection, getDocs, query, where, updateDoc, initializeFirestore } from 'firebase/firestore';
+import { hashPassword, verifyPassword, isPasswordHashed, encryptData, decryptData } from './crypto';
 
-// --- CẤU HÌNH GOOGLE CLOUD / FIREBASE ---
+// --- CẤU HÌNH GOOGLE CLOUD / FIREBASE (from environment variables) ---
 const firebaseConfig = {
-  apiKey: "AIzaSyDo60X6HM70j80ReZKa4h5XTSHh77w_jy8",
-  authDomain: "taxmate-8a9d3.firebaseapp.com",
-  projectId: "taxmate-8a9d3",
-  storageBucket: "taxmate-8a9d3.firebasestorage.app",
-  messagingSenderId: "726344611291",
-  appId: "1:726344611291:web:c48ca59d82766204cfe3fe",
-  measurementId: "G-0FN9V9QK72"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 // Kích hoạt chế độ Cloud
@@ -123,10 +124,13 @@ export const databaseService = {
     register: async (phone: string, password: string): Promise<UserAccount> => {
         const existingUser = await databaseService.getUser(phone);
         if (existingUser) throw new Error("Số điện thoại này đã tồn tại trên hệ thống.");
-        
+
+        // Hash password before storing
+        const hashedPassword = await hashPassword(password);
+
         const newUser: UserAccount = {
             phoneNumber: phone,
-            password: password,
+            password: hashedPassword,
             role: phone === '0999999999' ? 'ACCOUNTANT' : 'CLIENT',
             profile: null,
             transactions: [],
@@ -135,7 +139,7 @@ export const databaseService = {
             createdAt: Date.now(),
             isPaid: false
         };
-        
+
         await databaseService.updateUser(newUser);
         localStorage.setItem(SESSION_KEY, phone);
         return newUser;
@@ -149,9 +153,10 @@ export const databaseService = {
         if (phone === '0999999999') {
             const acc = await databaseService.getUser(phone);
             if (!acc) {
+                const hashedPassword = await hashPassword('123456');
                 const accountant: UserAccount = {
                     phoneNumber: phone,
-                    password: '123456',
+                    password: hashedPassword,
                     role: 'ACCOUNTANT',
                     profile: null,
                     transactions: [],
@@ -166,8 +171,20 @@ export const databaseService = {
 
         const user = await databaseService.getUser(phone);
         if (!user) throw new Error("Tài khoản không tồn tại.");
-        if (password && user.password && user.password !== password) throw new Error("Mã PIN không chính xác.");
-        
+
+        // Verify password using secure comparison
+        if (password && user.password) {
+            const isValid = await verifyPassword(password, user.password);
+            if (!isValid) throw new Error("Mã PIN không chính xác.");
+
+            // Migrate legacy plaintext password to hashed version
+            if (!isPasswordHashed(user.password)) {
+                const hashedPassword = await hashPassword(password);
+                user.password = hashedPassword;
+                await databaseService.updateUser(user);
+            }
+        }
+
         localStorage.setItem(SESSION_KEY, phone);
         return user;
     },
@@ -178,8 +195,9 @@ export const databaseService = {
     resetPassword: async (phone: string, newPin: string): Promise<void> => {
         const user = await databaseService.getUser(phone);
         if (!user) throw new Error("Số điện thoại chưa được đăng ký.");
-        
-        user.password = newPin;
+
+        // Hash the new password before storing
+        user.password = await hashPassword(newPin);
         await databaseService.updateUser(user);
     },
 
@@ -230,35 +248,38 @@ export const databaseService = {
     },
 
     /**
-     * HỖ TRỢ BACKUP
+     * HỖ TRỢ BACKUP (Encrypted with AES-GCM)
      */
     exportBackup: async (): Promise<string> => {
         // Ưu tiên lấy từ Local Cache để nhanh
         const dbData = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
         const json = JSON.stringify(dbData);
-        return btoa(unescape(encodeURIComponent(json)));
+        // Encrypt data before export
+        const encrypted = await encryptData(json);
+        return encrypted;
     },
 
-    importBackup: (backupString: string): boolean => {
+    importBackup: async (backupString: string): Promise<boolean> => {
         try {
-            const json = decodeURIComponent(escape(atob(backupString)));
+            // Decrypt data first
+            const json = await decryptData(backupString);
             const db = JSON.parse(json);
             if (typeof db !== 'object') return false;
-            
+
             // Lưu vào Local
             localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
-            
+
             // Nếu có Cloud, cố gắng đẩy từng user lên Cloud
             if (IS_CLOUD_ENABLED && dbFirestore) {
                 Object.values(db).forEach((user: any) => {
                     databaseService.updateUser(user);
                 });
             }
-            
+
             return true;
         } catch (e) {
             console.error("Import failed", e);
-            throw new Error("Mã sao lưu không hợp lệ.");
+            throw new Error("Mã sao lưu không hợp lệ hoặc đã bị hỏng.");
         }
     },
     
