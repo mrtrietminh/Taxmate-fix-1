@@ -390,28 +390,92 @@ export const databaseService = {
         }
     },
 
-    // ==================== LEGACY COMPATIBILITY (for gradual migration) ====================
-    // These functions are kept temporarily but will throw errors to force migration
+    // ==================== PIN-BASED AUTH (Demo Mode) ====================
+    // Simple PIN-based authentication for demo purposes
 
     /**
-     * @deprecated Use Firebase Auth instead
+     * Register a new user with phone + PIN
      */
-    register: async (_phone: string, _password: string): Promise<UserAccount> => {
-        throw new Error('Vui lòng sử dụng đăng nhập bằng số điện thoại với OTP.');
+    register: async (phone: string, pin: string): Promise<UserAccount> => {
+        try {
+            // Check if phone already exists
+            const q = query(collection(dbFirestore, "users"), where("phoneNumber", "==", phone));
+            const existing = await getDocs(q);
+            if (!existing.empty) {
+                throw new Error('Số điện thoại này đã được đăng ký.');
+            }
+
+            // Generate a simple UID based on phone
+            const uid = `PIN_${phone}_${Date.now()}`;
+
+            const newUser: UserAccount = {
+                uid,
+                phoneNumber: phone,
+                password: pin,
+                role: phone === '0999999999' ? 'ACCOUNTANT' : 'CLIENT',
+                profile: null,
+                transactions: [],
+                chatHistory: [],
+                p2pChat: [],
+                createdAt: Date.now(),
+                isPaid: phone === '0999999999' ? true : false
+            };
+
+            await setDoc(doc(dbFirestore, "users", uid), newUser);
+            console.log(`✅ [Cloud] User registered: ${uid}`);
+            return newUser;
+        } catch (e: any) {
+            console.error("Cloud Error (register):", e);
+            throw e;
+        }
     },
 
     /**
-     * @deprecated Use Firebase Auth instead
+     * Login with phone + PIN
      */
-    login: async (_phone: string, _password?: string): Promise<UserAccount> => {
-        throw new Error('Vui lòng sử dụng đăng nhập bằng số điện thoại với OTP.');
+    login: async (phone: string, pin: string): Promise<UserAccount> => {
+        try {
+            const q = query(collection(dbFirestore, "users"), where("phoneNumber", "==", phone));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                throw new Error('Tài khoản không tồn tại. Vui lòng đăng ký.');
+            }
+
+            const userDoc = querySnapshot.docs[0];
+            const user = userDoc.data() as UserAccount;
+
+            if (user.password !== pin) {
+                throw new Error('Mã PIN không chính xác.');
+            }
+
+            console.log(`✅ [Cloud] User logged in: ${user.uid}`);
+            return user;
+        } catch (e: any) {
+            console.error("Cloud Error (login):", e);
+            throw e;
+        }
     },
 
     /**
-     * @deprecated No longer needed with Firebase Auth
+     * Reset PIN for existing user
      */
-    resetPassword: async (_phone: string, _newPin: string): Promise<void> => {
-        throw new Error('Với Firebase Auth, bạn có thể đăng nhập lại bằng OTP mới.');
+    resetPassword: async (phone: string, newPin: string): Promise<void> => {
+        try {
+            const q = query(collection(dbFirestore, "users"), where("phoneNumber", "==", phone));
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                throw new Error('Tài khoản không tồn tại.');
+            }
+
+            const userDoc = querySnapshot.docs[0];
+            await setDoc(doc(dbFirestore, "users", userDoc.id), { password: newPin }, { merge: true });
+            console.log(`✅ [Cloud] PIN reset for: ${phone}`);
+        } catch (e: any) {
+            console.error("Cloud Error (resetPassword):", e);
+            throw e;
+        }
     },
 
     /**
