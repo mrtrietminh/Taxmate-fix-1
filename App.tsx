@@ -20,11 +20,26 @@ const AppContent: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Khôi phục session từ Cloud
+  // Khôi phục session từ Cloud (với timeout để tránh treo)
   useEffect(() => {
+    const SESSION_TIMEOUT = 10000; // 10 giây timeout
+
     const initApp = async () => {
+      // Tạo timeout promise
+      const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => {
+          console.warn("⏱️ Session restore timed out, continuing without session");
+          resolve(null);
+        }, SESSION_TIMEOUT);
+      });
+
       try {
-        const user = await databaseService.getCurrentSession();
+        // Race giữa getCurrentSession và timeout
+        const user = await Promise.race([
+          databaseService.getCurrentSession(),
+          timeoutPromise
+        ]);
+
         if (user) {
           setCurrentUser(user);
           setIsAuthenticated(true);

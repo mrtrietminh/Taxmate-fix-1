@@ -59,15 +59,25 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     }
 
     setIsLoading(true);
+
+    // Timeout để tránh loading mãi mãi
+    const authTimeout = setTimeout(() => {
+        setIsLoading(false);
+        setError('Kết nối quá chậm. Vui lòng thử lại.');
+    }, 15000); // 15 giây timeout
+
     try {
         if (mode === 'REGISTER') {
             const user = await databaseService.register(phoneNumber, pin);
+            clearTimeout(authTimeout);
             onLoginSuccess(user);
         } else if (mode === 'LOGIN') {
             const user = await databaseService.login(phoneNumber, pin);
+            clearTimeout(authTimeout);
             onLoginSuccess(user);
         } else if (mode === 'FORGOT_PASSWORD') {
             await databaseService.resetPassword(phoneNumber, pin);
+            clearTimeout(authTimeout);
             setSuccessMsg('Đặt lại mã PIN thành công. Vui lòng đăng nhập.');
             setTimeout(() => {
                 setMode('LOGIN');
@@ -75,8 +85,16 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
             }, 1500);
         }
     } catch (err: any) {
-        setError(err.message || 'Có lỗi xảy ra.');
+        clearTimeout(authTimeout);
+        const errorMessage = err.message || 'Có lỗi xảy ra.';
+        // Cải thiện thông báo lỗi cho người dùng
+        if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
+            setError('Kết nối chậm. Vui lòng kiểm tra mạng và thử lại.');
+        } else {
+            setError(errorMessage);
+        }
     } finally {
+        clearTimeout(authTimeout);
         setIsLoading(false);
     }
   };
