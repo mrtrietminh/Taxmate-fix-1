@@ -1,9 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Image as ImageIcon, Loader2, CheckCircle, XCircle, AlertTriangle, ArrowRight, Sparkles, FileText } from 'lucide-react';
-import { ChatMessage, Transaction, TransactionType, RiskLevel, BusinessProfile } from '../types';
+import { ChatMessage, Transaction, TransactionType, RiskLevel, BusinessProfile, FirestoreTransaction } from '../types';
 import { sendMessageToGemini } from '../services/geminiService';
 import { generateId, formatVND, formatDate } from '../utils';
+import { databaseService } from '../services/databaseService';
 
 interface ChatInterfaceProps {
   onNewTransaction: (t: Transaction) => void;
@@ -11,14 +12,16 @@ interface ChatInterfaceProps {
   businessProfile: BusinessProfile;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  currentUserUid: string;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  onNewTransaction, 
-  onRemoveTransaction, 
+const ChatInterface: React.FC<ChatInterfaceProps> = ({
+  onNewTransaction,
+  onRemoveTransaction,
   businessProfile,
   messages,
-  setMessages 
+  setMessages,
+  currentUserUid
 }) => {
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -173,26 +176,48 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     fileInputRef.current?.click();
   };
 
-  const handleAction = (msgId: string, action: 'CONFIRM' | 'REJECT') => {
+  const handleAction = async (msgId: string, action: 'CONFIRM' | 'REJECT') => {
+    if (action === 'CONFIRM') {
+      const msg = messages.find(m => m.id === msgId);
+      if (msg?.pendingData) {
+        // Save to Firestore transactions collection
+        const firestoreTransaction: Omit<FirestoreTransaction, 'id'> = {
+          businessUserId: currentUserUid,
+          date: new Date(msg.pendingData.date).getTime(),
+          amount: msg.pendingData.amount,
+          type: msg.pendingData.type === TransactionType.INCOME ? 'INCOME' : 'EXPENSE',
+          note: msg.pendingData.description,
+          createdAt: Date.now(),
+          source: 'AI'
+        };
+
+        try {
+          await databaseService.saveTransaction(firestoreTransaction);
+          console.log('✅ Transaction saved to Firestore');
+        } catch (e) {
+          console.error('Error saving transaction to Firestore:', e);
+        }
+
+        // Also update local state for backward compatibility
+        onNewTransaction(msg.pendingData);
+      }
+    }
+
     setMessages(prev => prev.map(m => {
         if (m.id !== msgId) return m;
 
         if (action === 'CONFIRM') {
-            if (m.pendingData) {
-                // GỌI HÀM CẬP NHẬT STATE APP
-                onNewTransaction(m.pendingData);
-            }
-            return { 
-                ...m, 
-                actionRequired: false, 
-                relatedTransactionId: m.pendingData?.id, 
-                text: m.text 
+            return {
+                ...m,
+                actionRequired: false,
+                relatedTransactionId: m.pendingData?.id,
+                text: m.text
             };
         } else {
-            return { 
-                ...m, 
+            return {
+                ...m,
                 actionRequired: false,
-                pendingData: undefined, 
+                pendingData: undefined,
                 text: "Đã hủy bỏ thao tác này."
             };
         }

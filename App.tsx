@@ -9,7 +9,7 @@ import Login from './components/Login';
 import ServiceQuote from './components/ServiceQuote';
 import { Transaction, BusinessProfile, ChatMessage, UserAccount } from './types';
 import { databaseService } from './services/databaseService';
-import { PieChart, Users, Bell, LogOut, MessageCircle, Cloud, CloudOff, Loader2, DollarSign } from 'lucide-react';
+import { PieChart, Users, Bell, LogOut, MessageCircle, Cloud, Loader2 } from 'lucide-react';
 
 type View = 'CHAT' | 'DASHBOARD' | 'CONNECT';
 
@@ -19,55 +19,73 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('CHAT');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // State cho việc xem báo giá khi chưa đăng nhập
-  // FIX: Kiểm tra cả pathname '/bao-gia' để hỗ trợ link đẹp
   const [showGuestQuote, setShowGuestQuote] = useState(() => {
       if (typeof window !== 'undefined') {
           const path = window.location.pathname;
           const params = new URLSearchParams(window.location.search);
-          // Hỗ trợ cả taxmate.vn/bao-gia và ?view=quote
           return path === '/bao-gia' || params.get('view') === 'quote';
       }
       return false;
   });
 
-  // Khôi phục session từ Cloud
+  // Listen to Firebase Auth state changes - Cloud-first approach
   useEffect(() => {
-    const initApp = async () => {
-      try {
-        const user = await databaseService.getCurrentSession();
-        if (user) {
-          setCurrentUser(user);
-          setIsAuthenticated(true);
+    const unsubscribe = databaseService.onAuthStateChanged(async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          // Fetch user data from Firestore using UID
+          const userData = await databaseService.getUser(firebaseUser.uid);
+          if (userData) {
+            // Fetch business profile from separate collection
+            const profile = await databaseService.getBusinessProfile(firebaseUser.uid);
+            if (profile) {
+              userData.profile = profile;
+            }
+            setCurrentUser(userData);
+            setIsAuthenticated(true);
+          } else {
+            // User exists in Auth but not in Firestore - rare case
+            console.warn('User authenticated but no Firestore document found');
+            setIsAuthenticated(false);
+            setCurrentUser(null);
+          }
+        } catch (e) {
+          console.error("Error loading user data from Firestore:", e);
+          setIsAuthenticated(false);
+          setCurrentUser(null);
         }
-      } catch (e) {
-        console.error("Session restore failed", e);
-      } finally {
-        setIsLoading(false);
+      } else {
+        // Not authenticated
+        setIsAuthenticated(false);
+        setCurrentUser(null);
       }
-    };
-    initApp();
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  // Poll tin nhắn để cập nhật badge thông báo (Cập nhật sang Async)
+  // Poll tin nhắn để cập nhật badge thông báo
   useEffect(() => {
-    if (!isAuthenticated || currentUser?.role === 'ACCOUNTANT') return;
-    
+    if (!isAuthenticated || !currentUser || currentUser.role === 'ACCOUNTANT') return;
+
     const interval = setInterval(async () => {
-        const updatedUser = await databaseService.getUser(currentUser?.phoneNumber || '');
+        const updatedUser = await databaseService.getUser(currentUser.uid);
         if (updatedUser) {
-            // Chỉ cập nhật nếu số lượng tin nhắn thay đổi để tránh re-render quá nhiều
-            if (updatedUser.p2pChat.length !== currentUser?.p2pChat.length) {
+            if (updatedUser.p2pChat.length !== currentUser.p2pChat.length) {
+                // Preserve the profile since it's in a separate collection
+                updatedUser.profile = currentUser.profile;
                 setCurrentUser(updatedUser);
             }
         }
     }, 3000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, currentUser?.phoneNumber, currentUser?.p2pChat.length]);
+  }, [isAuthenticated, currentUser?.uid, currentUser?.p2pChat.length, currentUser?.profile]);
 
 
-  // Hàm đồng bộ dữ liệu lên GCP trung tâm
+  // Hàm đồng bộ dữ liệu lên Firestore
   const syncWithCloud = async (updatedUser: UserAccount) => {
       setIsSyncing(true);
       try {
@@ -79,102 +97,104 @@ const App: React.FC = () => {
       }
   };
 
-  const handleLoginSuccess = (user: UserAccount) => {
+  const handleLoginSuccess = async (user: UserAccount) => {
       setCurrentUser(user);
       setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-      databaseService.clearSession();
+  const handleLogout = async () => {
+      try {
+        await databaseService.signOut();
+      } catch (e) {
+        console.error("Logout error:", e);
+      }
       setCurrentUser(null);
       setIsAuthenticated(false);
       setCurrentView('CHAT');
-      console.log("User logged out successfully.");
   };
 
-  // FIX: Sử dụng Functional Update để đảm bảo luôn lấy state mới nhất
   const handleNewTransaction = (transaction: Transaction) => {
     setCurrentUser(prevUser => {
         if (!prevUser) return null;
-        
+
         const updatedUser = {
             ...prevUser,
             transactions: [...prevUser.transactions, transaction]
         };
-        
-        // Gọi sync ngay trong callback để đảm bảo data đồng nhất
+
         syncWithCloud(updatedUser);
         return updatedUser;
     });
   };
 
-  // FIX: Sử dụng Functional Update
   const handleRemoveTransaction = (id: string) => {
       setCurrentUser(prevUser => {
           if (!prevUser) return null;
-          
+
           const updatedUser = {
               ...prevUser,
               transactions: prevUser.transactions.filter(t => t.id !== id)
           };
-          
+
           syncWithCloud(updatedUser);
           return updatedUser;
       });
   };
 
-  // FIX: Sử dụng Functional Update
   const handleSetMessages = (newMessages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
       setCurrentUser(prevUser => {
           if (!prevUser) return null;
 
-          const updatedHistory = typeof newMessages === 'function' 
-            ? newMessages(prevUser.chatHistory) 
+          const updatedHistory = typeof newMessages === 'function'
+            ? newMessages(prevUser.chatHistory)
             : newMessages;
 
           const updatedUser = {
               ...prevUser,
               chatHistory: updatedHistory
           };
-          
+
           syncWithCloud(updatedUser);
           return updatedUser;
       });
   };
 
-  const handleCompleteOnboarding = (profile: BusinessProfile) => {
+  const handleCompleteOnboarding = async (profile: BusinessProfile) => {
+      if (!currentUser) return;
+
+      // Save ONLY to businessProfiles/{uid} collection
+      await databaseService.saveBusinessProfile(currentUser.uid, profile);
+
+      // Update local state
       setCurrentUser(prevUser => {
           if (!prevUser) return null;
-          const updatedUser = {
+          return {
               ...prevUser,
               profile: profile
           };
-          syncWithCloud(updatedUser);
-          return updatedUser;
       });
   };
 
-  // Hàm cập nhật hồ sơ (được gọi từ Dashboard)
-  const handleUpdateProfile = (updatedProfile: BusinessProfile) => {
+  const handleUpdateProfile = async (updatedProfile: BusinessProfile) => {
+      if (!currentUser) return;
+
+      // Update ONLY businessProfiles/{uid} collection
+      await databaseService.saveBusinessProfile(currentUser.uid, updatedProfile);
+
       setCurrentUser(prevUser => {
           if (!prevUser) return null;
-          const updatedUser = {
+          return {
               ...prevUser,
               profile: updatedProfile
           };
-          syncWithCloud(updatedUser);
-          return updatedUser;
       });
   };
 
-  // Hàm đóng báo giá và xóa param trên URL để sạch đẹp
   const handleCloseGuestQuote = () => {
       setShowGuestQuote(false);
-      // Nếu đang ở /bao-gia thì quay về root
       if (window.location.pathname === '/bao-gia') {
            window.history.pushState({}, '', '/');
       } else {
-           // Nếu đang ở ?view=quote
            const url = new URL(window.location.href);
            url.searchParams.delete('view');
            window.history.replaceState({}, '', url);
@@ -183,7 +203,6 @@ const App: React.FC = () => {
 
   const handleOpenGuestQuote = () => {
       setShowGuestQuote(true);
-      // Đổi URL thành /bao-gia để dễ share, nhưng không reload trang
       window.history.pushState({}, '', '/bao-gia');
   };
 
@@ -201,8 +220,8 @@ const App: React.FC = () => {
       return (
         <>
             <Login onLoginSuccess={handleLoginSuccess} />
-            
-            {/* Nút xem báo giá nhanh cho khách (Floating Action Button) */}
+
+            {/* Nút xem báo giá nhanh cho khách */}
             <button
                 onClick={handleOpenGuestQuote}
                 className="fixed bottom-6 right-6 w-14 h-14 bg-white text-blue-600 rounded-full shadow-2xl border-2 border-blue-50 flex items-center justify-center z-40 active:scale-90 transition-transform hover:bg-blue-50"
@@ -220,7 +239,7 @@ const App: React.FC = () => {
   if (currentUser?.role === 'ACCOUNTANT') {
       return (
           <div className="h-full w-full max-w-md mx-auto bg-slate-50 shadow-2xl overflow-hidden relative border-x border-slate-200">
-              <AccountantView onLogout={handleLogout} />
+              <AccountantView onLogout={handleLogout} accountantUid={currentUser.uid} />
           </div>
       );
   }
@@ -237,30 +256,30 @@ const App: React.FC = () => {
     switch (currentView) {
       case 'CHAT':
         return (
-          <ChatInterface 
-            onNewTransaction={handleNewTransaction} 
-            onRemoveTransaction={handleRemoveTransaction} 
+          <ChatInterface
+            onNewTransaction={handleNewTransaction}
+            onRemoveTransaction={handleRemoveTransaction}
             businessProfile={currentUser.profile!}
             messages={currentUser.chatHistory}
             setMessages={handleSetMessages}
+            currentUserUid={currentUser.uid}
           />
         );
       case 'DASHBOARD':
         return (
-            <Dashboard 
-                transactions={currentUser.transactions} 
-                businessProfile={currentUser.profile!} 
-                onUpdateProfile={handleUpdateProfile} 
+            <Dashboard
+                transactions={currentUser.transactions}
+                businessProfile={currentUser.profile!}
+                onUpdateProfile={handleUpdateProfile}
             />
         );
       case 'CONNECT':
-        return <AccountantMatch transactions={currentUser.transactions} currentUserPhone={currentUser.phoneNumber} />;
+        return <AccountantMatch transactions={currentUser.transactions} currentUserUid={currentUser.uid} currentUserPhone={currentUser.phoneNumber} />;
       default:
         return null;
     }
   };
 
-  // Logic tính số tin nhắn chưa đọc (đơn giản hóa bằng cách đếm tổng tin nhắn nếu chưa thanh toán)
   const hasUnreadMessages = currentUser.p2pChat.length > 0;
 
   return (
@@ -289,9 +308,9 @@ const App: React.FC = () => {
                 <button type="button" className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 transition-all active:scale-95">
                     <Bell size={20} />
                 </button>
-                <button 
-                    type="button" 
-                    onClick={handleLogout} 
+                <button
+                    type="button"
+                    onClick={handleLogout}
                     className="w-10 h-10 flex items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all active:scale-95 cursor-pointer"
                     title="Đăng xuất"
                 >

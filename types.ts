@@ -71,6 +71,7 @@ export interface AccountantProfile {
 }
 
 export interface UserAccount {
+    uid: string; // Firebase Auth UID - primary identifier
     phoneNumber: string;
     password?: string;
     role: 'CLIENT' | 'ACCOUNTANT';
@@ -83,3 +84,35 @@ export interface UserAccount {
 }
 
 export type AppDatabase = Record<string, UserAccount>;
+
+// ==================== NEW TYPES FOR CORE FEATURES ====================
+
+// Client Assignment (Part 1)
+export interface ClientAssignment {
+    id?: string;
+    accountantId: string;
+    businessUserId: string;
+    createdAt: number;
+}
+
+// Human-to-Human Message (Part 3)
+export interface HumanMessage {
+    id?: string;
+    roomId: string;
+    senderId: string;
+    senderRole: 'BUSINESS' | 'ACCOUNTANT';
+    text: string;
+    createdAt: number;
+}
+
+// Firestore Transaction (Part 4)
+export interface FirestoreTransaction {
+    id?: string;
+    businessUserId: string;
+    date: number;
+    amount: number;
+    type: 'INCOME' | 'EXPENSE';
+    note: string;
+    createdAt: number;
+    source: 'AI' | 'MANUAL';
+}
