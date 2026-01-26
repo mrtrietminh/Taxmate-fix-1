@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BookingStep, AccountantProfile, Transaction, P2PMessage } from '../types';
 import { formatVND, formatDate } from '../utils';
 import { databaseService } from '../services/databaseService';
-import { Check, ShieldCheck, Send, Eye, EyeOff, Sparkles, QrCode, Copy, Loader2, ArrowLeft, CheckCircle2, MessageCircle } from 'lucide-react';
+import { Check, ShieldCheck, Send, Eye, EyeOff, Sparkles, QrCode, Copy, Loader2, ArrowLeft, CheckCircle2, MessageCircle, FileText } from 'lucide-react';
+import ServiceQuote from './ServiceQuote';
 
 const SERVICE_FEE = 199000;
 const BANK_BIN = '970422'; // MB Bank
@@ -34,6 +35,7 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<P2PMessage[]>([]);
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [showQuote, setShowQuote] = useState(false); // State để hiển thị bảng giá
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Poll tin nhắn và trạng thái thanh toán (Async)
@@ -130,6 +132,11 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
      return `https://img.vietqr.io/image/${BANK_BIN}-${BANK_ACCOUNT}-compact.png?amount=${SERVICE_FEE}&addInfo=${encodeURIComponent(currentUserPhone)}`;
   };
 
+  // NẾU ĐANG XEM BÁO GIÁ THÌ HIỂN THỊ COMPONENT BÁO GIÁ
+  if (showQuote) {
+      return <ServiceQuote onClose={() => setShowQuote(false)} />;
+  }
+
   // -- SCREEN 1: INTRO --
   if (step === BookingStep.IDLE) {
     return (
@@ -181,9 +188,18 @@ const AccountantMatch: React.FC<AccountantMatchProps> = ({ transactions, current
                         </div>
                     </div>
 
-                    <button onClick={() => setStep(BookingStep.PAYMENT)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-all">
-                        {messages.length > 0 ? 'Mở khóa tin nhắn ngay' : 'Kết nối ngay'} • {formatVND(SERVICE_FEE)}
-                    </button>
+                    <div className="space-y-3">
+                        <button onClick={() => setStep(BookingStep.PAYMENT)} className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200 active:scale-95 transition-all">
+                            {messages.length > 0 ? 'Mở khóa tin nhắn ngay' : 'Kết nối ngay'} • {formatVND(SERVICE_FEE)}
+                        </button>
+                        
+                        <button 
+                            onClick={() => setShowQuote(true)}
+                            className="w-full py-3 rounded-2xl font-bold text-slate-500 hover:bg-slate-100 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm"
+                        >
+                             <FileText size={16} /> Xem bảng giá chi tiết
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

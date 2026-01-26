@@ -6,40 +6,37 @@ import AccountantMatch from './components/AccountantMatch';
 import AccountantView from './components/AccountantView';
 import Onboarding from './components/Onboarding';
 import Login from './components/Login';
-import ErrorBoundary from './components/ErrorBoundary';
+import ServiceQuote from './components/ServiceQuote';
 import { Transaction, BusinessProfile, ChatMessage, UserAccount } from './types';
 import { databaseService } from './services/databaseService';
-import { PieChart, Users, Bell, LogOut, MessageCircle, Cloud, CloudOff, Loader2 } from 'lucide-react';
+import { PieChart, Users, Bell, LogOut, MessageCircle, Cloud, CloudOff, Loader2, DollarSign } from 'lucide-react';
 
 type View = 'CHAT' | 'DASHBOARD' | 'CONNECT';
 
-const AppContent: React.FC = () => {
+const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [currentView, setCurrentView] = useState<View>('CHAT');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // State cho việc xem báo giá khi chưa đăng nhập
+  // FIX: Kiểm tra cả pathname '/bao-gia' để hỗ trợ link đẹp
+  const [showGuestQuote, setShowGuestQuote] = useState(() => {
+      if (typeof window !== 'undefined') {
+          const path = window.location.pathname;
+          const params = new URLSearchParams(window.location.search);
+          // Hỗ trợ cả taxmate.vn/bao-gia và ?view=quote
+          return path === '/bao-gia' || params.get('view') === 'quote';
+      }
+      return false;
+  });
 
-  // Khôi phục session từ Cloud (với timeout để tránh treo)
+  // Khôi phục session từ Cloud
   useEffect(() => {
-    const SESSION_TIMEOUT = 10000; // 10 giây timeout
-
     const initApp = async () => {
-      // Tạo timeout promise
-      const timeoutPromise = new Promise<null>((resolve) => {
-        setTimeout(() => {
-          console.warn("⏱️ Session restore timed out, continuing without session");
-          resolve(null);
-        }, SESSION_TIMEOUT);
-      });
-
       try {
-        // Race giữa getCurrentSession và timeout
-        const user = await Promise.race([
-          databaseService.getCurrentSession(),
-          timeoutPromise
-        ]);
-
+        const user = await databaseService.getCurrentSession();
         if (user) {
           setCurrentUser(user);
           setIsAuthenticated(true);
@@ -170,6 +167,26 @@ const AppContent: React.FC = () => {
       });
   };
 
+  // Hàm đóng báo giá và xóa param trên URL để sạch đẹp
+  const handleCloseGuestQuote = () => {
+      setShowGuestQuote(false);
+      // Nếu đang ở /bao-gia thì quay về root
+      if (window.location.pathname === '/bao-gia') {
+           window.history.pushState({}, '', '/');
+      } else {
+           // Nếu đang ở ?view=quote
+           const url = new URL(window.location.href);
+           url.searchParams.delete('view');
+           window.history.replaceState({}, '', url);
+      }
+  };
+
+  const handleOpenGuestQuote = () => {
+      setShowGuestQuote(true);
+      // Đổi URL thành /bao-gia để dễ share, nhưng không reload trang
+      window.history.pushState({}, '', '/bao-gia');
+  };
+
   if (isLoading) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-white">
@@ -179,8 +196,25 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // --- XỬ LÝ KHI CHƯA ĐĂNG NHẬP ---
   if (!isAuthenticated) {
-      return <Login onLoginSuccess={handleLoginSuccess} />;
+      return (
+        <>
+            <Login onLoginSuccess={handleLoginSuccess} />
+            
+            {/* Nút xem báo giá nhanh cho khách (Floating Action Button) */}
+            <button
+                onClick={handleOpenGuestQuote}
+                className="fixed bottom-6 right-6 w-14 h-14 bg-white text-blue-600 rounded-full shadow-2xl border-2 border-blue-50 flex items-center justify-center z-40 active:scale-90 transition-transform hover:bg-blue-50"
+                title="Xem báo giá dịch vụ"
+            >
+                <span className="text-2xl font-black font-serif">$</span>
+            </button>
+
+            {/* Modal Báo giá */}
+            {showGuestQuote && <ServiceQuote onClose={handleCloseGuestQuote} />}
+        </>
+      );
   }
 
   if (currentUser?.role === 'ACCOUNTANT') {
@@ -291,15 +325,6 @@ const AppContent: React.FC = () => {
         </button>
       </nav>
     </div>
-  );
-};
-
-// Wrap the app with ErrorBoundary for graceful error handling
-const App: React.FC = () => {
-  return (
-    <ErrorBoundary>
-      <AppContent />
-    </ErrorBoundary>
   );
 };
 

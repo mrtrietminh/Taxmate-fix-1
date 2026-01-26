@@ -2,27 +2,13 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { TransactionType, RiskLevel, BusinessProfile } from "../types";
 
-// Hàm helper để lấy API key từ Vite env
-const getApiKey = (): string | null => {
-  // Vite sử dụng import.meta.env thay vì process.env
-  const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY ||
-                 (import.meta as any).env?.VITE_API_KEY ||
-                 (typeof process !== 'undefined' ? process.env?.VITE_GEMINI_API_KEY : null);
-
-  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-    console.warn("⚠️ Cảnh báo: VITE_GEMINI_API_KEY chưa được cấu hình trong environment variables.");
-    return null;
-  }
-  return apiKey;
-};
-
-// Hàm helper để lấy client
+// Hàm helper để lấy client, đảm bảo luôn lấy key mới nhất từ env
 const getGenAIClient = () => {
-  const apiKey = getApiKey();
+  const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API_KEY_NOT_CONFIGURED");
+    console.warn("Cảnh báo: process.env.API_KEY đang trống hoặc chưa được cấu hình.");
   }
-  return new GoogleGenAI({ apiKey });
+  return new GoogleGenAI({ apiKey: apiKey || '' });
 };
 
 // --- SYSTEM INSTRUCTIONS ---
@@ -142,13 +128,7 @@ const chatResponseSchema: Schema = {
 
 export const analyzeBusinessLicense = async (base64Image: string): Promise<BusinessProfile | null> => {
   try {
-    // Kiểm tra API key trước
-    if (!getApiKey()) {
-      console.error("❌ Không thể phân tích: Chưa có API Key");
-      return null;
-    }
-
-    const ai = getGenAIClient();
+    const ai = getGenAIClient(); // Khởi tạo client tại đây
     const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
     const response = await ai.models.generateContent({
       model: "gemini-2.0-flash-exp",
@@ -227,18 +207,17 @@ export const sendMessageToGemini = async (
 
   } catch (error: any) {
     console.error("Gemini Chat Error Full Details:", error);
-
+    
     // Xử lý thông báo lỗi chi tiết để hiển thị cho người dùng
     let errorMessage = "Hệ thống đang bận. Vui lòng thử lại sau.";
-
-    if (error.message === "API_KEY_NOT_CONFIGURED" || !getApiKey()) {
-        errorMessage = "⚠️ Tính năng AI chưa được kích hoạt. Vui lòng liên hệ quản trị viên để cấu hình API Key.";
+    
+    if (!process.env.API_KEY) {
+        errorMessage = "Lỗi: Chưa cấu hình API Key.";
     } else if (error.message) {
         if (error.message.includes("401")) errorMessage = "Lỗi xác thực: API Key không hợp lệ (401).";
         else if (error.message.includes("403")) errorMessage = "Lỗi quyền truy cập: API Key không được phép (403).";
         else if (error.message.includes("404")) errorMessage = "Lỗi model: Model AI không tìm thấy hoặc chưa được cấp quyền (404).";
         else if (error.message.includes("429")) errorMessage = "Hệ thống quá tải: Vui lòng đợi vài giây (429).";
-        else if (error.message.includes("API_KEY")) errorMessage = "⚠️ Chưa cấu hình API Key cho AI.";
         else errorMessage = `Lỗi AI: ${error.message}`;
     }
 
