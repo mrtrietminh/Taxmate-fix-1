@@ -37,8 +37,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
       const extracted = await analyzeBusinessLicense(base64);
 
       setIsProcessing(false);
-      if (extracted && extracted.name && extracted.taxId) {
+      if (extracted && extracted.name?.trim() && extracted.taxId?.trim()) {
         // OCR successful - prefill form and go to step 3
+        setShowOcrFallbackMessage(false);
         setFormData(extracted);
         setStep(3);
       } else {

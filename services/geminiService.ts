@@ -234,8 +234,13 @@ export const sendMessageToGemini = async (
 
     if (isApiKeyMissing) {
         // Friendly message - guide user to manual input instead of showing technical error
-        errorMessage = "Trợ lý AI hiện chưa sẵn sàng. Bạn có thể nhập thu chi thủ công bằng cách mô tả rõ ràng hơn hoặc sử dụng các nút bên dưới.\n\n💡 Ví dụ: \"Thu 500k bán hàng\" hoặc \"Chi 200k tiền điện\"";
-    } else if (error.message) {
+        return {
+          reply: "Trợ lý AI hiện chưa sẵn sàng. Bạn có thể nhập thu chi thủ công bằng cách mô tả rõ ràng hơn hoặc sử dụng các nút bên dưới.\n\n💡 Ví dụ: \"Thu 500k bán hàng\" hoặc \"Chi 200k tiền điện\"",
+          transaction: null
+        };
+    }
+
+    if (error.message) {
         if (error.message.includes("401") || error.message.includes("403")) {
             errorMessage = "Trợ lý AI tạm thời không khả dụng. Bạn có thể nhập thu chi thủ công.";
         } else if (error.message.includes("404")) {
