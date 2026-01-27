@@ -23,6 +23,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     ownerName: ''
   });
 
+  // State for showing OCR fallback message
+  const [showOcrFallbackMessage, setShowOcrFallbackMessage] = useState(false);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -32,13 +35,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     reader.onloadend = async () => {
       const base64 = reader.result as string;
       const extracted = await analyzeBusinessLicense(base64);
-      
+
       setIsProcessing(false);
-      if (extracted) {
+      if (extracted && extracted.name && extracted.taxId) {
+        // OCR successful - prefill form and go to step 3
         setFormData(extracted);
-        setStep(3); // Chuyển sang bước review/edit form
+        setStep(3);
       } else {
-        alert("Không đọc được ảnh rõ ràng. Vui lòng thử lại hoặc nhập tay.");
+        // OCR failed or incomplete - GRACEFUL FALLBACK
+        // Don't show scary error, just guide to manual entry with friendly message
+        setShowOcrFallbackMessage(true);
+        setStep(3); // Automatically go to manual entry form
       }
     };
     reader.readAsDataURL(file);
@@ -143,6 +150,14 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         </div>
 
         <form onSubmit={handleFormSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
+            {/* Friendly OCR fallback message - shown when image couldn't be read */}
+            {showOcrFallbackMessage && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-2">
+                <p className="text-blue-800 text-sm">
+                  📝 Để đảm bảo chính xác, vui lòng nhập thông tin hộ kinh doanh của bạn vào form bên dưới.
+                </p>
+              </div>
+            )}
             <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 ml-1">Tên Hộ Kinh Doanh <span className="text-red-500">*</span></label>
                 <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">

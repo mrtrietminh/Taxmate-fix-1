@@ -222,18 +222,30 @@ export const sendMessageToGemini = async (
   } catch (error: any) {
     console.error("Gemini Chat Error Full Details:", error);
 
-    // Xử lý thông báo lỗi chi tiết để hiển thị cho người dùng
+    // Xử lý thông báo lỗi - GRACEFUL FALLBACK với UX thân thiện
     let errorMessage = "Hệ thống đang bận. Vui lòng thử lại sau.";
+    let isApiKeyMissing = false;
 
     if (error.message === "API_KEY_NOT_CONFIGURED" || !getApiKey()) {
-        errorMessage = "⚠️ Tính năng AI chưa được kích hoạt. Vui lòng liên hệ quản trị viên để cấu hình API Key.";
+        isApiKeyMissing = true;
+    } else if (error.message && error.message.includes("API_KEY")) {
+        isApiKeyMissing = true;
+    }
+
+    if (isApiKeyMissing) {
+        // Friendly message - guide user to manual input instead of showing technical error
+        errorMessage = "Trợ lý AI hiện chưa sẵn sàng. Bạn có thể nhập thu chi thủ công bằng cách mô tả rõ ràng hơn hoặc sử dụng các nút bên dưới.\n\n💡 Ví dụ: \"Thu 500k bán hàng\" hoặc \"Chi 200k tiền điện\"";
     } else if (error.message) {
-        if (error.message.includes("401")) errorMessage = "Lỗi xác thực: API Key không hợp lệ (401).";
-        else if (error.message.includes("403")) errorMessage = "Lỗi quyền truy cập: API Key không được phép (403).";
-        else if (error.message.includes("404")) errorMessage = "Lỗi model: Model AI không tìm thấy hoặc chưa được cấp quyền (404).";
-        else if (error.message.includes("429")) errorMessage = "Hệ thống quá tải: Vui lòng đợi vài giây (429).";
-        else if (error.message.includes("API_KEY")) errorMessage = "⚠️ Chưa cấu hình API Key cho AI.";
-        else errorMessage = `Lỗi AI: ${error.message}`;
+        if (error.message.includes("401") || error.message.includes("403")) {
+            errorMessage = "Trợ lý AI tạm thời không khả dụng. Bạn có thể nhập thu chi thủ công.";
+        } else if (error.message.includes("404")) {
+            errorMessage = "Trợ lý AI đang được nâng cấp. Vui lòng thử lại sau giây lát.";
+        } else if (error.message.includes("429")) {
+            errorMessage = "Hệ thống đang xử lý nhiều yêu cầu. Vui lòng đợi vài giây rồi thử lại.";
+        } else {
+            // Generic fallback - don't expose technical details
+            errorMessage = "Không thể xử lý yêu cầu lúc này. Vui lòng thử lại hoặc nhập thông tin thủ công.";
+        }
     }
 
     return {
