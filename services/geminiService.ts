@@ -240,19 +240,20 @@ export const sendMessageToGemini = async (
         };
     }
 
+    // Handle specific error codes
     if (error.message) {
         if (error.message.includes("401") || error.message.includes("403")) {
-            errorMessage = "Trợ lý AI tạm thời không khả dụng. Bạn có thể nhập thu chi thủ công.";
-        } else if (error.message.includes("404")) {
-            errorMessage = "Trợ lý AI đang được nâng cấp. Vui lòng thử lại sau giây lát.";
-        } else if (error.message.includes("429")) {
-            errorMessage = "Hệ thống đang xử lý nhiều yêu cầu. Vui lòng đợi vài giây rồi thử lại.";
-        } else {
-            // Generic fallback - don't expose technical details
-            errorMessage = "Không thể xử lý yêu cầu lúc này. Vui lòng thử lại hoặc nhập thông tin thủ công.";
+            return { reply: "Trợ lý AI tạm thời không khả dụng. Bạn có thể nhập thu chi thủ công.", transaction: null };
+        }
+        if (error.message.includes("404")) {
+            return { reply: "Trợ lý AI đang được nâng cấp. Vui lòng thử lại sau giây lát.", transaction: null };
+        }
+        if (error.message.includes("429")) {
+            return { reply: "Hệ thống đang xử lý nhiều yêu cầu. Vui lòng đợi vài giây rồi thử lại.", transaction: null };
         }
     }
 
+    // Default fallback - always return valid object
     return {
       reply: errorMessage,
       transaction: null
